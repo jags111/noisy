@@ -1,0 +1,13 @@
+mypy
+flake8
+pytest
+
+torch
+torchvision
+numpy
+
+jupyterlab
+matplotlib
+tqdm
+click
+pyyaml

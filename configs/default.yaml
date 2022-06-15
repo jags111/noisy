@@ -1,0 +1,22 @@
+name: default
+T: 100
+
+optim:
+  lr: 0.001
+  weight_decay: 0.1
+
+training:
+  batch_size: 32
+  log_freq: 10
+  checkpoint_freq: 100
+
+img:
+  size: 64
+  channels: 3
+
+data:
+  path: ./data/birds/
+  extensions:
+    - .jpeg
+    - .jpg
+    - .png
