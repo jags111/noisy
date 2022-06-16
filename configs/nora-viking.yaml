@@ -12,12 +12,12 @@ training:
   batch_size: 128
   log_freq: 10
   checkpoint_freq: 2000
-  metrics_freq: 2
+  metrics_freq: 5
   steps: 2
 
 wandb:
   enable: true
-  log_freq: 10
+  log_freq: 20
   img_freq: 500
   gradient_freq: 250
   project: noisy
