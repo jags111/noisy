@@ -12,6 +12,7 @@ training:
   batch_size: 128
   log_freq: 10
   checkpoint_freq: 1000
+  metrics_freq: 2
   steps: 2
 
 wandb:
