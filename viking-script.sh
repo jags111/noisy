@@ -9,25 +9,11 @@
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
 
-# Checklist:
-# - Create a config in ./configs/<name>-viking.yaml
-# - Change the --output value above to the correct file
-# - Change the NAME below to the correct value
-
-NAME=nora
-WD=./zoo/$NAME
-CP=$WD/.latest
-
 echo "Loading CUDA 11.0"
 module load system/CUDA/11.0.2-GCC-9.3.0
 
 pushd ~/scratch/noisy/
 . .venv/bin/activate
 pip install -r requirements.txt
-./cli.py init \
-    --workdir $WD \
-    --config configs/$NAME-viking.yaml \
-    --force true
-./cli.py train \
-    --checkpoint $CP
+./cli.py train
 popd

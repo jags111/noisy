@@ -24,7 +24,7 @@ def init(wd: Path, cfg: Union[AttrDict, Path], force: bool = False) -> Path:
         cfg = AttrDict.from_yaml(cfg)
     # Remove the previous workdir if the force flag is set
     if force:
-        logger.info('Removing existing directory: {workdir}')
+        logger.info(f'Removing existing directory: {wd}')
         shutil.rmtree(str(wd))
     wd.mkdir(parents=True)
     # Create the initial checkpoint
