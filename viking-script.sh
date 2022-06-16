@@ -4,7 +4,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=10gb
-#SBATCH --output=./zoo/nora/viking-logs.log
+#SBATCH --output=./viking-logs/nora.log
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
 #SBATCH --time=24:00:00
@@ -17,8 +17,6 @@
 NAME=nora
 WD=./zoo/$NAME
 CP=$WD/.latest
-
-mkdir --parents $(WD)/viking-logs.log
 
 echo "Loading CUDA 11.0"
 module load system/CUDA/11.0.2-GCC-9.3.0
