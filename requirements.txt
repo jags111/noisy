@@ -11,3 +11,4 @@ matplotlib
 tqdm
 click
 pyyaml
+wandb

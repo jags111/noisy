@@ -1,18 +1,22 @@
-from typing import Optional
-import random
+from typing import Optional, Any, Union
 from dataclasses import dataclass
 from pathlib import Path
 from logging import getLogger
 from itertools import count
+from pprint import pformat
 import torch
 from torch import Tensor
 from torch.optim import AdamW
 from torch.utils.data import Dataset, DataLoader
 import torch.nn.functional as F
+import wandb
+from wandb.sdk.wandb_run import Run as WandbRun
 
 from .models import Model
-from .utils import AttrDict, rel_path, make_symlink
+from .utils import AttrDict, rel_path, make_symlink, random_name, ema
+from .synthesize import synthesize
 from . import workdir
+from .perf import measure_perf, PerfMeasurer, get_totals as get_perf_totals
 
 
 logger = getLogger('noisy.training')
@@ -22,57 +26,119 @@ logger = getLogger('noisy.training')
 class TrainingContext:
     iteration: int = 0
     loss_ema: Optional[float] = None
+    wandb_run_id: Optional[Any] = None
 
     def periodically(self, freq: int) -> bool:
         return self.iteration % freq == 0
 
 
-def diffuse(x: Tensor, beta: float, noise: Tensor) -> Tensor:
+def diffuse(x: Tensor, beta: Union[float, Tensor], noise: Tensor) -> Tensor:
+    # Intuitively: The larger the beta, the more noise
+    if isinstance(beta, Tensor):
+        assert 0. <= beta.min() and 1 >= beta.max(), beta
+        b, = beta.shape
+        assert x.size(0) == b
+        beta = beta.reshape(-1, 1, 1, 1)
+    else:
+        assert 0 <= beta <= 1., f'beta should be in [0, 1], but is {beta}'
     x = (1 - beta) ** 0.5 * x + beta ** 0.5 * noise
     assert isinstance(x, Tensor)
     return x
 
 
-def ema(x: float, acc: Optional[float], alpha: float = 0.95) -> float:
-    if acc is None:
-        return x
-    return alpha * acc + (1 - alpha) * x
-
-
 def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
           ctx: TrainingContext, wd: Path, device: torch.device) -> None:
-    model.to(device)
     dl = DataLoader(ds, cfg.training.batch_size)
     pairs = (batch for _ in count() for batch in dl)
+    if cfg.wandb.enable:
+        wandb_run = load_wandb_run(ctx, cfg, model)
+    else:
+        wandb_run = None
     for batch in pairs:
-        # Prepare the data
-        batch = batch.to(device)
-        noise = torch.randn(batch.shape, device=device)
-        t = random.randint(0, cfg.T)
-        # For now we just set beta to a constant
-        inputs_beta = t / cfg.T
-        targets_beta = (t + 1) / cfg.T
-        inputs = diffuse(batch, inputs_beta, noise)
-        target = diffuse(inputs, targets_beta - inputs_beta, noise)
-        # The actual training
-        model.zero_grad()
-        estimation = model(target, t / cfg.T)
-        # TODO: Try using the distance between the estimation and the line
-        # between the batch and the inputs. See:
-        # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line
-        loss = F.mse_loss(estimation, target)
-        loss.backward()  # type: ignore
-        optim.step()
-        # Update the EMA of the loss
-        abs_loss = float(loss.mean().sqrt().item())
-        ctx.loss_ema = ema(abs_loss, ctx.loss_ema)
-        # Logging to stdout
-        if ctx.periodically(cfg.training.log_freq):
-            logger.info(f'{ctx.iteration} | {ctx.loss_ema:5.7}')
-        # Saving checkpoints
-        if ctx.periodically(cfg.training.checkpoint_freq):
-            cp = wd / str(ctx.iteration).zfill(6)
-            workdir.save_checkpoint(cp, model, optim, cfg, ctx)
-            make_symlink(wd / workdir.LATEST_CP_SL, cp)
-            logger.info(f'Saved checkpoint to: {rel_path(cp)}')
-        ctx.iteration += 1
+        model.train().to(device)
+        with PerfMeasurer('train.prep'):
+            # (1) Prepare the data.
+            batch = batch.to(device)
+            batch_size = batch.size(0)
+            noise = torch.randn(batch.shape, device=device)
+            # Pick a different t for each sample in the batch
+            t = torch.randint(cfg.T - cfg.training.steps - 1,
+                              size=(batch_size,), device=device)
+            # Add noise to the target..
+            targets_beta = t / cfg.T
+            target = diffuse(batch, targets_beta, noise)
+            # ...and slightly stronger noise to the inputs.
+            images_beta = (t + cfg.training.steps) / cfg.T
+            images = diffuse(batch, images_beta, noise)
+        with PerfMeasurer('train.run'):
+            # (2) Pass the inputs to the model and iterate for `cfg.training.steps`
+            # steps.
+            model.zero_grad()
+            for dt in range(cfg.training.steps):
+                t_ = t - dt + cfg.training.steps
+                images = model(images, t_ / cfg.T)
+            # TODO: Try using the distance between the estimation and the line
+            # between the batch and the inputs. See:
+            # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line.
+            loss = F.mse_loss(images, target)
+            loss.backward()  # type: ignore
+            optim.step()
+        with PerfMeasurer('train.other'):
+            # (3) Update the EMA of the loss and do other housekeeping.
+            abs_loss = float(loss.mean().sqrt().item())
+            ctx.loss_ema = ema(abs_loss, ctx.loss_ema)
+            # Advance the iteration counter.
+            ctx.iteration += 1
+            # Logging to stdout.
+            if ctx.periodically(cfg.training.log_freq):
+                logger.info(f'{ctx.iteration} | {ctx.loss_ema:5.7}')
+            # Logging to WandB.
+            if cfg.wandb.enable and ctx.periodically(cfg.wandb.log_freq):
+                assert wandb_run is not None
+                log_to_wandb(wandb_run, model, cfg, ctx, device)
+            # Saving checkpoints.
+            if ctx.periodically(cfg.training.checkpoint_freq):
+                cp = wd / str(ctx.iteration).zfill(6)
+                workdir.save_checkpoint(cp, model, optim, cfg, ctx)
+                make_symlink(wd / workdir.LATEST_CP_SL, cp)
+                logger.info(f'Saved checkpoint to: {rel_path(cp)}')
+
+
+def load_wandb_run(ctx: TrainingContext, cfg: AttrDict, model: Model
+                   ) -> WandbRun:
+    if ctx.wandb_run_id is None:
+        run = wandb.init(project=cfg.wandb.project,
+                         group=cfg.wandb.group,
+                         name=cfg.wandb.name or random_name(prefix='wandb'),
+                         tags=cfg.wandb.tags,
+                         resume=False,
+                         notes=(f'Model:\n{model}\nConfig:\n{pformat(cfg)}'))
+    else:
+        run = wandb.init(id=ctx.wandb_run_id, resume=True)
+    wandb.watch(model, log_freq=cfg.wandb.gradient_freq, idx=0, log='all')
+    assert isinstance(run, WandbRun)
+    ctx.wandb_run_id = run.id
+    logger.info(f'Loaded WandB run with id: {run.id}, name: {run.name} and '
+                f'URL: {run.get_url()}')
+    return run
+
+
+@measure_perf('train.wandb')
+def log_to_wandb(run: WandbRun,
+                 model: Model,
+                 cfg: AttrDict,
+                 ctx: TrainingContext,
+                 device: torch.device) -> None:
+    imgs = synthesize(model, cfg, number=8, show_bar=False, device=device)
+    imgs_np = imgs.cpu().detach().numpy()
+    imgs_np = imgs_np.transpose((0, 2, 3, 1))  # type: ignore
+    log_dict = {
+        'Loss': ctx.loss_ema,
+        'Imgs': [wandb.Image(gen_img) for gen_img in imgs_np],
+        'Imgs Hist': wandb.Histogram(imgs_np.reshape(-1)),
+        'LR': cfg.optim.lr,
+        'Batch Size': cfg.training.batch_size,
+        **get_perf_totals()
+    }
+    run.log(log_dict, step=ctx.iteration)
+    model.train()

@@ -2,3 +2,4 @@ zoo/
 data
 .latest
 .name_counter
+wandb/

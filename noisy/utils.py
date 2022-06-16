@@ -1,8 +1,13 @@
 from __future__ import annotations
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 import os
 from logging import getLogger
 from pathlib import Path
+import torch
+from torch import Tensor
+import torchvision.utils as vutils  # type: ignore
+import matplotlib.pyplot as plt  # type: ignore
+import numpy as np
 import yaml
 
 
@@ -70,3 +75,56 @@ def rel_path(path: Path, root: Optional[Path] = None) -> Path:
     if root is None:
         root = Path(os.getcwd())
     return Path(os.path.relpath(path, root))
+
+
+def show(img: Tensor, show: bool = True, clip: bool = True) -> None:
+    """ Plots the given image. """
+    if img.dim() == 4 and img.size(0) != 1:
+        return show_grid(img)
+    if clip:
+        img = torch.clip(img, 0., 1.)
+    if isinstance(img, Tensor):
+        img = (img
+               .cpu()
+               .numpy()
+               .squeeze()
+               .transpose((1, 2, 0)))  # C, H, W -> H, W, C
+    plt.imshow(img)
+    plt.axis('off')
+    plt.tight_layout()
+    if show:
+        plt.show()
+
+
+def show_grid(imgs: Tensor, figsize: Tuple[int, int] = (12, 12),
+              show: bool = True, clip: bool = True) -> None:
+    """ Plots the given images in a grid. """
+    imgs = imgs.detach().cpu()
+    if clip:
+        imgs = torch.clip(imgs, 0., 1.)
+    grid = vutils.make_grid(imgs, padding=2, value_range=(0, 1))
+    plt.figure(figsize=figsize)
+    plt.tight_layout()
+    plt.axis("off")
+    plt.imshow(np.transpose(grid, (1, 2, 0)))
+    plt.tight_layout()
+    if show:
+        plt.show()
+
+
+def random_name(prefix: str = 'run') -> str:
+    counter_file = Path('.name_counter')
+    if counter_file.exists():
+        with open(counter_file, 'r') as fh:
+            number = int(fh.read())
+    else:
+        number = 0
+    with open(counter_file, 'w') as fh:
+        fh.write(str(number + 1))
+    return f'{prefix}-{str(number).zfill(4)}'
+
+
+def ema(x: float, acc: Optional[float], alpha: float = 0.95) -> float:
+    if acc is None:
+        return x
+    return alpha * acc + (1 - alpha) * x
