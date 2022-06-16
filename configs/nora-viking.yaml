@@ -16,8 +16,9 @@ training:
 
 wandb:
   enable: true
-  log_freq: 50
-  gradient_freq: 50
+  log_freq: 20
+  img_freq: 250
+  gradient_freq: 250
   project: noisy
   group: birds
   name: nora

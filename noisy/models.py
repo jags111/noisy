@@ -111,8 +111,6 @@ class Model(nn.Module):
         c = Cursor(mult=self.cfg.arch.width_mult)
         gain = 1 / 2**0.5
         tsc = self.cfg.arch.timestep_channels
-        # TODO: Add attention blocks, see:
-        # https://github.com/pesser/pytorch_diffusion/blob/master/pytorch_diffusion/model.py
         self.main = nn.Sequential(
             # 64
             self.block(self.cfg.img.channels + tsc, c(2), gain=gain),

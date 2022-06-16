@@ -10,6 +10,7 @@ from torch.optim import AdamW
 from .utils import AttrDict
 from .models import Model
 from .training import TrainingContext
+from .perf import get_perf_data, set_perf_data, PerfEntry
 
 
 logger = getLogger('noisy.workdir')
@@ -42,6 +43,7 @@ def save_checkpoint(cp: Path, model: Model, optim: AdamW, cfg: AttrDict,
     save_model(cp, model)
     save_optim(cp, optim)
     save_ctx(cp, ctx)
+    save_perf_data(cp)
 
 
 def load_checkpoint(cp: Path, device: torch.device,
@@ -51,6 +53,7 @@ def load_checkpoint(cp: Path, device: torch.device,
     model.to(device)
     optim = load_opim(cp, cfg, model)
     ctx = load_ctx(cp)
+    load_perf_data(cp)
     return cfg, model, optim, ctx
 
 
@@ -95,3 +98,24 @@ def load_ctx(cp: Path) -> TrainingContext:
     with open(cp / 'ctx.yaml') as fh:
         d = yaml.safe_load(fh)
     return TrainingContext(**d)
+
+
+def save_perf_data(cp: Path) -> None:
+    perf_data = get_perf_data()
+    perf_dict = {k: asdict(v) for k, v in perf_data.items()}
+    with open(cp / 'perf.yaml', 'w') as fh:
+        yaml.dump(perf_dict, fh)
+
+
+def load_perf_data(cp: Path) -> None:
+    # Note that this sets the global performance data, so no need to return
+    # anything.
+    if not (cp / 'perf.yaml').exists():
+        return
+    with open(cp / 'perf.yaml') as fh:
+        perf_dict = yaml.safe_load(fh)
+    assert isinstance(perf_dict, dict)
+    assert all(isinstance(k, str) and isinstance(v, dict)
+               for k, v in perf_dict.items())
+    perf_data = {k: PerfEntry(**v) for k, v in perf_dict.items()}
+    set_perf_data(perf_data)

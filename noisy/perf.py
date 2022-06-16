@@ -22,19 +22,24 @@ class PerfEntry:
         self.last = time_taken
 
 
-_perf_dict: Dict[str, PerfEntry] = dict()
+_perf_data: Dict[str, PerfEntry] = dict()
 
 
-def get_perf_dict() -> Dict[str, PerfEntry]:
-    return _perf_dict
+def get_perf_data() -> Dict[str, PerfEntry]:
+    return _perf_data
 
 
-def get_emas() -> Dict[str, Optional[float]]:
-    return {k: pe.ema for k, pe in get_perf_dict().items()}
+def set_perf_data(perf_data: Dict[str, PerfEntry]) -> None:
+    global _perf_data
+    _perf_data = perf_data
 
 
-def get_totals() -> Dict[str, Optional[float]]:
-    return {k: pe.total for k, pe in get_perf_dict().items()}
+def get_emas(prefix: str = '') -> Dict[str, Optional[float]]:
+    return {prefix + k: pe.ema for k, pe in get_perf_data().items()}
+
+
+def get_totals(prefix: str = '') -> Dict[str, Optional[float]]:
+    return {prefix + k: pe.total for k, pe in get_perf_data().items()}
 
 
 def measure_perf(name: str
@@ -59,7 +64,7 @@ class PerfMeasurer:
     def __exit__(self, *_) -> None:
         stop_time = time.perf_counter()
         time_taken = stop_time - self.start_time
-        if self.name not in get_perf_dict():
-            get_perf_dict()[self.name] = PerfEntry()
-        pe = get_perf_dict()[self.name]
+        if self.name not in get_perf_data():
+            get_perf_data()[self.name] = PerfEntry()
+        pe = get_perf_data()[self.name]
         pe.update(time_taken)

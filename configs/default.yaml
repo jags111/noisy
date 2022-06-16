@@ -12,12 +12,14 @@ training:
   batch_size: 32
   log_freq: 10
   checkpoint_freq: 500
+  metrics_freq: 5
   steps: 2
 
 wandb:
   enable: true
-  log_freq: 50
-  gradient_freq: 50
+  log_freq: 10
+  img_freq: 100
+  gradient_freq: 100
   project: noisy
   group: birds
   name: null

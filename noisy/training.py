@@ -16,7 +16,7 @@ from .models import Model
 from .utils import AttrDict, rel_path, make_symlink, random_name, ema
 from .synthesize import synthesize
 from . import workdir
-from .perf import measure_perf, PerfMeasurer, get_totals as get_perf_totals
+from .perf import PerfMeasurer, get_totals as get_perf_totals
 
 
 logger = getLogger('noisy.training')
@@ -83,21 +83,30 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
             loss = F.mse_loss(images, target)
             loss.backward()  # type: ignore
             optim.step()
-        with PerfMeasurer('train.other'):
-            # (3) Update the EMA of the loss and do other housekeeping.
-            abs_loss = float(loss.mean().sqrt().item())
-            ctx.loss_ema = ema(abs_loss, ctx.loss_ema)
-            # Advance the iteration counter.
-            ctx.iteration += 1
-            # Logging to stdout.
-            if ctx.periodically(cfg.training.log_freq):
-                logger.info(f'{ctx.iteration} | {ctx.loss_ema:5.7}')
-            # Logging to WandB.
-            if cfg.wandb.enable and ctx.periodically(cfg.wandb.log_freq):
+        if ctx.periodically(cfg.training.metrics_freq):
+            with PerfMeasurer('train.metrics'):
+                with torch.no_grad():
+                    # (3) Update the EMA of the loss and do other housekeeping.
+                    abs_loss = float(loss.detach().mean().sqrt().item())
+                ctx.loss_ema = ema(abs_loss, ctx.loss_ema)
+        # Advance the iteration counter.
+        ctx.iteration += 1
+        # Logging to stdout.
+        if ctx.periodically(cfg.training.log_freq):
+            logger.info(f'{ctx.iteration} | {ctx.loss_ema:5.7}')
+        # Logging to WandB.
+        if cfg.wandb.enable and ctx.periodically(cfg.wandb.log_freq):
+            with PerfMeasurer('train.wandb.log'):
                 assert wandb_run is not None
-                log_to_wandb(wandb_run, model, cfg, ctx, device)
-            # Saving checkpoints.
-            if ctx.periodically(cfg.training.checkpoint_freq):
+                log_to_wandb(wandb_run, cfg, ctx)
+        # Sending synthesised images to WandB.
+        if cfg.wandb.enable and ctx.periodically(cfg.wandb.img_freq):
+            with PerfMeasurer('train.wandb.img'):
+                assert wandb_run is not None
+                img_to_wandb(wandb_run, model, cfg, ctx, device)
+        # Saving checkpoints.
+        if ctx.periodically(cfg.training.checkpoint_freq):
+            with PerfMeasurer('train.checkpoint'):
                 cp = wd / str(ctx.iteration).zfill(6)
                 workdir.save_checkpoint(cp, model, optim, cfg, ctx)
                 make_symlink(wd / workdir.LATEST_CP_SL, cp)
@@ -123,8 +132,19 @@ def load_wandb_run(ctx: TrainingContext, cfg: AttrDict, model: Model
     return run
 
 
-@measure_perf('train.wandb')
 def log_to_wandb(run: WandbRun,
+                 cfg: AttrDict,
+                 ctx: TrainingContext) -> None:
+    log_dict = {
+        'Loss': ctx.loss_ema,
+        'LR': cfg.optim.lr,
+        'Batch Size': cfg.training.batch_size,
+        **get_perf_totals(prefix='perf.')
+    }
+    run.log(log_dict, step=ctx.iteration)
+
+
+def img_to_wandb(run: WandbRun,
                  model: Model,
                  cfg: AttrDict,
                  ctx: TrainingContext,
@@ -133,12 +153,6 @@ def log_to_wandb(run: WandbRun,
     imgs_np = imgs.cpu().detach().numpy()
     imgs_np = imgs_np.transpose((0, 2, 3, 1))  # type: ignore
     log_dict = {
-        'Loss': ctx.loss_ema,
         'Imgs': [wandb.Image(gen_img) for gen_img in imgs_np],
-        'Imgs Hist': wandb.Histogram(imgs_np.reshape(-1)),
-        'LR': cfg.optim.lr,
-        'Batch Size': cfg.training.batch_size,
-        **get_perf_totals()
     }
     run.log(log_dict, step=ctx.iteration)
-    model.train()
