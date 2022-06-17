@@ -68,14 +68,14 @@ class Residual(nn.Module):
 class AttentionBlock(nn.Module):
     '''Adapted from: https://github.com/pesser/pytorch_diffusion'''
 
-    def __init__(self, in_channels: int):
+    def __init__(self, channels: int):
         super().__init__()
-        self.in_channels = in_channels
-        self.norm = nn.InstanceNorm2d(in_channels)
-        self.q = nn.Conv2d(in_channels, in_channels, 1)
-        self.k = nn.Conv2d(in_channels, in_channels, 1)
-        self.v = nn.Conv2d(in_channels, in_channels, 1)
-        self.proj_out = torch.nn.Conv2d(in_channels, in_channels, 1)
+        self.channels = channels
+        self.norm = nn.InstanceNorm2d(channels)
+        self.q = nn.Conv2d(channels, channels, 1)
+        self.k = nn.Conv2d(channels, channels, 1)
+        self.v = nn.Conv2d(channels, channels, 1)
+        self.proj_out = torch.nn.Conv2d(channels, channels, 1)
 
     def forward(self, x):
         h_ = x
@@ -86,18 +86,15 @@ class AttentionBlock(nn.Module):
         # (1) Compute attention
         b, c, h, w = q.shape
         q = q.reshape(b, c, h * w)
-        q = q.permute(0, 2, 1)   # b,hw,c
-        k = k.reshape(b, c, h * w) # b,c,hw
-        # b,hw,hw
-        w_ = torch.bmm(q, k)
-        w_ = w_ * c ** (-0.5)
+        q = q.permute(0, 2, 1)   # b, hw, c
+        k = k.reshape(b, c, h * w)  # b, c, hw
+        w_ = torch.bmm(q, k)  # b, hw, hw
+        w_ = w_ * c.rsqrt()
         w_ = F.softmax(w_, dim=2)
         # (2) Attend to values
         v = v.reshape(b, c, h * w)
-        # b,hw,hw (first hw of k, second of q)
-        w_ = w_.permute(0, 2, 1)
-        # b, c,hw (hw of q) h_[b,c,j] = sum_i v[b,c,i] w_[b,i,j]
-        h_ = torch.bmm(v, w_)
+        w_ = w_.permute(0, 2, 1)  # b, hw, hw (first hw of k, second of q)
+        h_ = torch.bmm(v, w_)  # b, c, hw (hw of q) h_[b, c, j]
         h_ = h_.reshape(b, c, h, w)
         h_ = self.proj_out(h_)
         return x + h_
@@ -177,7 +174,3 @@ class Model(nn.Module):
                 gain=gain,
             ),
         )
-
-    def noise(self, n: int) -> Tensor:
-        size = n, self.cfg.img.channels, self.cfg.img.size, self.cfg.img.size
-        return torch.randn(size=size)

@@ -49,12 +49,12 @@ def diffuse(x: Tensor, beta: Union[float, Tensor], noise: Tensor) -> Tensor:
 def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
           ctx: TrainingContext, wd: Path, device: torch.device) -> None:
     dl = DataLoader(ds, cfg.training.batch_size)
-    pairs = (batch for _ in count() for batch in dl)
+    batches = (batch for _ in count() for batch in dl)
     if cfg.wandb.enable:
         wandb_run = load_wandb_run(ctx, cfg, model)
     else:
         wandb_run = None
-    for batch in pairs:
+    for batch in batches:
         model.train().to(device)
         with PerfMeasurer('train.prep'):
             # (1) Prepare the data.
@@ -71,8 +71,8 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
             images_beta = (t + cfg.training.steps) / cfg.T
             images = diffuse(batch, images_beta, noise)
         with PerfMeasurer('train.run'):
-            # (2) Pass the inputs to the model and iterate for `cfg.training.steps`
-            # steps.
+            # (2) Pass the inputs to the model and iterate for
+            # `cfg.training.steps` steps.
             model.zero_grad()
             for dt in range(cfg.training.steps):
                 t_ = t - dt + cfg.training.steps

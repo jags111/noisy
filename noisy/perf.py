@@ -42,17 +42,6 @@ def get_totals(prefix: str = '') -> Dict[str, Optional[float]]:
     return {prefix + k: pe.total for k, pe in get_perf_data().items()}
 
 
-def measure_perf(name: str
-                 ) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
-    def wrapper(fn: Callable[..., RT]) -> Callable[..., RT]:
-        def inner(*args, **kwargs) -> RT:
-            with PerfMeasurer(name):
-                rv = fn(*args, **kwargs)
-            return rv
-        return inner
-    return wrapper
-
-
 class PerfMeasurer:
 
     def __init__(self, name: str) -> None:
