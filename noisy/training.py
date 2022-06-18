@@ -24,6 +24,8 @@ logger = getLogger('noisy.training')
 
 @dataclass
 class TrainingContext:
+    '''Values for training that need to be persistently stored in checkpoints,
+    apart from model parameters and the optimiser state etc.'''
     iteration: int = 0
     loss_ema: Optional[float] = None
     wandb_run_id: Optional[Any] = None
@@ -33,7 +35,8 @@ class TrainingContext:
 
 
 def diffuse(x: Tensor, beta: Union[float, Tensor], noise: Tensor) -> Tensor:
-    # Intuitively: The larger the beta, the more noise
+    '''Perform diffusion on the image. Intuitively: The larger the beta, the
+    more noise.'''
     if isinstance(beta, Tensor):
         assert 0. <= beta.min() and 1 >= beta.max(), beta
         b, = beta.shape
@@ -61,7 +64,7 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
             batch = batch.to(device)
             batch_size = batch.size(0)
             noise = torch.randn(batch.shape, device=device)
-            # Pick a different t for each sample in the batch
+            # Pick a random t for each sample in the batch
             t = torch.randint(cfg.T - cfg.training.steps - 1,
                               size=(batch_size,), device=device)
             # Add noise to the target..
@@ -76,10 +79,7 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
             model.zero_grad()
             for dt in range(cfg.training.steps):
                 t_ = t - dt + cfg.training.steps
-                images = model(images, t_ / cfg.T)
-            # TODO: Try using the distance between the estimation and the line
-            # between the batch and the inputs. See:
-            # https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line.
+                images = images + model(images, t_ / cfg.T, std=1 / cfg.T)
             loss = F.mse_loss(images, target)
             loss.backward()  # type: ignore
             optim.step()

@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+'''Command Line Interface (CLI) for Noisy. To instantiate a new model, train
+and finally sample from it, run the following commands:
+
+    ./cli.py init  # Creates a new model
+    ./cli.py train  # Logs to wandb.ai, interrupt with Ctrl+c
+    ./cli.py syn  # Samples from the model
+
+Each command will print relevant information to stdout. For more options, add
+the --help flag to any command.
+'''
 from typing import Optional
 import logging
 from pathlib import Path
@@ -26,6 +36,7 @@ def cli() -> None:
 @click.option('--wandb-name', '-n', type=str, default=None)
 def init(workdir: Optional[Path], config: Optional[Path], force: bool,
          wandb_name: Optional[str]) -> None:
+    '''Instantiate a new, untrained model.'''
     if workdir is None:
         workdir = DEFAULT_ZOO / noisy.utils.random_name()
     if config is None:
@@ -46,6 +57,8 @@ def init(workdir: Optional[Path], config: Optional[Path], force: bool,
 @click.option('--device', '-d', type=str, default=None)
 def train(workdir: Optional[Path], checkpoint: Optional[Path],
           device: Optional[str]) -> None:
+    '''Train the model in the specified checkpoint. If no checkpoint is
+    specified, default to the most recent checkpoint.'''
     if checkpoint is None:
         checkpoint = noisy.workdir.LATEST_PROJ_SL / noisy.workdir.LATEST_CP_SL
     if workdir is None:
@@ -63,10 +76,13 @@ def train(workdir: Optional[Path], checkpoint: Optional[Path],
 @cli.command('syn')
 @click.option('--number', '-n', type=int, default=1)
 @click.option('--iters', '-i', type=int, default=None)
+@click.option('--std', type=float, default=None)
 @click.option('--checkpoint', '-c', type=Path, default=None)
 @click.option('--device', '-d', type=str, default=None)
-def syn(number: int, iters: Optional[int], checkpoint: Optional[Path],
-        device: Optional[str]) -> None:
+def syn(number: int, iters: Optional[int], std: Optional[float],
+        checkpoint: Optional[Path], device: Optional[str]) -> None:
+    '''Sample from the model in the specified checkpoint. If no checkpoint is
+    specified, default to the most recent checkpoint.'''
     if checkpoint is None:
         checkpoint = noisy.workdir.LATEST_PROJ_SL / noisy.workdir.LATEST_CP_SL
     if device is None:
@@ -76,7 +92,7 @@ def syn(number: int, iters: Optional[int], checkpoint: Optional[Path],
     cfg = noisy.workdir.load_cfg(checkpoint)
     model = noisy.workdir.load_model(checkpoint, cfg)
     img = noisy.synthesize.synthesize(model, cfg, number, iterations=iters,
-                                      show_bar=True, device=device_)
+                                      std=std, show_bar=True, device=device_)
     img_norm = img * 0.5 + 0.5
     noisy.utils.show(img_norm, clip=True)
 
@@ -84,6 +100,7 @@ def syn(number: int, iters: Optional[int], checkpoint: Optional[Path],
 @cli.command('dev')
 @click.option('--task', '-t', type=str, default='te')
 def dev(task: str) -> None:
+    '''For debugging and development, please ignore :)'''
     if task == 'te':
         # Display timestep embeddings
         x = torch.ones(10, 1, 32, 32)

@@ -1,11 +1,10 @@
-from typing import Callable, TypeVar, Optional, Dict
+'''Utilities to measure the performance and runtime of parts of the code. Used
+mostly during trainig.'''
+from typing import Optional, Dict
 from dataclasses import dataclass
 import time
 
 from .utils import ema
-
-
-RT = TypeVar('RT')  # return type
 
 
 @dataclass
@@ -34,15 +33,13 @@ def set_perf_data(perf_data: Dict[str, PerfEntry]) -> None:
     _perf_data = perf_data
 
 
-def get_emas(prefix: str = '') -> Dict[str, Optional[float]]:
-    return {prefix + k: pe.ema for k, pe in get_perf_data().items()}
-
-
 def get_totals(prefix: str = '') -> Dict[str, Optional[float]]:
     return {prefix + k: pe.total for k, pe in get_perf_data().items()}
 
 
 class PerfMeasurer:
+    '''A context manager that measures the execution time of the code in the
+    `with` block.'''
 
     def __init__(self, name: str) -> None:
         self.name = name

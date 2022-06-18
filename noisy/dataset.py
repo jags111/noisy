@@ -1,3 +1,7 @@
+'''The dataset. Given a directory, it collects all images within the directory
+into a torch Tensor for faster access. This obviously assumes that the dataset
+fits into memory. To save space, images are resized to the needed resolution
+and stored using 8-bit unsigned integers for their RGB values.'''
 import glob
 from pathlib import Path
 from itertools import chain

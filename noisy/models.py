@@ -1,3 +1,5 @@
+'''The model architecture. A combination of Convolutions and attention blocks,
+with multiple residual connections.'''
 from typing import Optional, Tuple, Union
 from dataclasses import dataclass
 import torch
@@ -10,6 +12,8 @@ from .utils import AttrDict
 
 @dataclass
 class Cursor:
+    '''A convenience class that helps tracking the current number of channels
+    in the model.'''
     x: int = -1
     mult: int = 1
 
@@ -21,6 +25,7 @@ class Cursor:
 
 @dataclass(unsafe_hash=True)
 class AssumeShape(nn.Module):
+    '''A convenience class that helps to debug model architectures.'''
     assumed_shape: Tuple[int, int, int]
 
     def __post_init__(self) -> None:
@@ -34,6 +39,9 @@ class AssumeShape(nn.Module):
 
 
 def timestep_embedding(x: Tensor, t: Union[float, Tensor], n: int) -> Tensor:
+    '''Adds the timestep t as a collection of channels, 1, 2, ..., I, each with
+    values roughly equal to sin(2 ** i * t). Somewhat similar to the embeddings
+    common.y used in transformers.'''
     b, _, h, w = x.shape
     if isinstance(t, Tensor):
         b_, = t.shape
@@ -52,6 +60,7 @@ def timestep_embedding(x: Tensor, t: Union[float, Tensor], n: int) -> Tensor:
 
 
 class Residual(nn.Module):
+    '''Similar to torch.nn.Sequential, only with a residual connection.'''
 
     def __init__(self, *modules: nn.Module, gain: float = 1.) -> None:
         super().__init__()
@@ -101,6 +110,7 @@ class AttentionBlock(nn.Module):
 
 
 class Model(nn.Module):
+    '''The diffusion model.'''
 
     def __init__(self, cfg: AttrDict) -> None:
         super().__init__()
@@ -154,12 +164,12 @@ class Model(nn.Module):
     def nonlin(self) -> nn.Module:
         return nn.ReLU(inplace=True)
 
-    def forward(self, x: Tensor, t: Union[float, Tensor]) -> Tensor:
+    def forward(self, x: Tensor, t: Union[float, Tensor], std: float = 1.) -> Tensor:
         xt = timestep_embedding(x, t, self.cfg.arch.timestep_channels)
         delta = self.main(xt)
         # Scale the delta to have mean 0 and std 1/T
-        delta = (delta - delta.mean()) / (delta.std() * self.cfg.T)
-        return delta + x
+        delta = std * (delta - delta.mean()) / delta.std()
+        return delta
 
     def block(self, in_c: int, c: int, gain: float = 1.) -> nn.Module:
         return nn.Sequential(

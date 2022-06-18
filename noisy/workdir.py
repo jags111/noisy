@@ -1,3 +1,5 @@
+'''Functions to deal with working directories and checkpoints. Concretely,
+saving and loading components of the training and sampling process.'''
 from typing import Union, Tuple
 from dataclasses import asdict
 from logging import getLogger
@@ -19,6 +21,7 @@ LATEST_CP_SL = Path('.latest')
 
 
 def init(wd: Path, cfg: Union[AttrDict, Path], force: bool = False) -> Path:
+    '''Initialise a new model and save the inital checkpoint.'''
     # Load the config
     if isinstance(cfg, Path):
         cfg = AttrDict.from_yaml(cfg)

@@ -1,3 +1,4 @@
+'''Various utility functions and classes.'''
 from __future__ import annotations
 from typing import Dict, Any, Optional, Tuple
 import os
@@ -15,8 +16,8 @@ logger = getLogger('noisy.utils')
 
 
 class AttrDict(Dict[str, Any]):
-    """A dictionary with JavaScript-like syntax. I.e. instead of d["my_key"],
-    we can simply say d.my_key."""
+    '''A dictionary with syntax similar to that of JavaScript objects. I.e.
+    instead of d["my_key"], we can simply say d.my_key.'''
 
     def __getattr__(self, key: str) -> Any:
         try:
@@ -121,10 +122,11 @@ def random_name(prefix: str = 'run') -> str:
         number = 0
     with open(counter_file, 'w') as fh:
         fh.write(str(number + 1))
-    return f'{prefix}-{str(number).zfill(4)}'
+    return prefix + '-' + str(number).zfill(4)
 
 
 def ema(x: float, acc: Optional[float], alpha: float = 0.95) -> float:
+    '''Exponentially Moving Average.'''
     if acc is None:
         return x
     return alpha * acc + (1 - alpha) * x
