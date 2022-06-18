@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 import click
 import torch
+import math
 
 import noisy
 
@@ -21,6 +22,26 @@ import noisy
 logger = logging.getLogger('noisy.cli')
 DEFAULT_ZOO = Path('./zoo/')
 DEFAULT_CONFIG = Path('./configs/default.yaml')
+
+
+def _float(x: Optional[str]) -> Optional[float]:
+    if x is None:
+        return None
+    if isinstance(x, (float, int)):
+        return float(x)
+    assert isinstance(x, str)
+    ctx = math.__dict__
+    return float(eval(x, ctx))
+
+
+def _int(x: Optional[str]) -> Optional[int]:
+    if x is None:
+        return None
+    if isinstance(x, (float, int)):
+        return int(x)
+    assert isinstance(x, str), x
+    ctx = math.__dict__
+    return int(eval(x, ctx))
 
 
 @click.group('cli')
@@ -74,13 +95,18 @@ def train(workdir: Optional[Path], checkpoint: Optional[Path],
 
 
 @cli.command('syn')
-@click.option('--number', '-n', type=int, default=1)
-@click.option('--iters', '-i', type=int, default=None)
-@click.option('--std', type=float, default=None)
+@click.option('--number', '-n', type=_int, default=1,
+              help='Number of images to synthesise')
+@click.option('--iters', '-i', type=_int, default=None)
+@click.option('--show-intermediate', type=_int, default=None,
+              help='Show the intermediate result every n steps')
+@click.option('--std', type=_float, default=None,
+              help='Scaling factor of each model invocation')
 @click.option('--checkpoint', '-c', type=Path, default=None)
 @click.option('--device', '-d', type=str, default=None)
-def syn(number: int, iters: Optional[int], std: Optional[float],
-        checkpoint: Optional[Path], device: Optional[str]) -> None:
+def syn(number: int, iters: Optional[int], show_intermediate: Optional[int],
+        std: Optional[float], checkpoint: Optional[Path], device: Optional[str]
+        ) -> None:
     '''Sample from the model in the specified checkpoint. If no checkpoint is
     specified, default to the most recent checkpoint.'''
     if checkpoint is None:
@@ -91,8 +117,16 @@ def syn(number: int, iters: Optional[int], std: Optional[float],
     device_ = torch.device(device)
     cfg = noisy.workdir.load_cfg(checkpoint)
     model = noisy.workdir.load_model(checkpoint, cfg)
-    img = noisy.synthesize.synthesize(model, cfg, number, iterations=iters,
-                                      std=std, show_bar=True, device=device_)
+    if show_intermediate is None:
+        img = noisy.synthesize.synthesize(model, cfg, number, iterations=iters,
+                                          std=std, show_bar=True,
+                                          device=device_)
+    else:
+        imgs = noisy.synthesize.synthesize_iter(model, cfg, number,
+                                                show_intermediate,
+                                                iterations=iters, std=std,
+                                                show_bar=True, device=device_)
+        img = torch.cat([*imgs])
     img_norm = img * 0.5 + 0.5
     noisy.utils.show(img_norm, clip=True)
 
