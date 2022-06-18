@@ -89,7 +89,7 @@ class AttentionBlock(nn.Module):
         q = q.permute(0, 2, 1)   # b, hw, c
         k = k.reshape(b, c, h * w)  # b, c, hw
         w_ = torch.bmm(q, k)  # b, hw, hw
-        w_ = w_ * c.rsqrt()
+        w_ = w_ / c ** 0.5
         w_ = F.softmax(w_, dim=2)
         # (2) Attend to values
         v = v.reshape(b, c, h * w)
