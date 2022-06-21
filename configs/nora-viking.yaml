@@ -3,6 +3,7 @@ T: 1000
 arch:
   width_mult: 64
   timestep_channels: 5
+  diffusion_method: linear
 
 optim:
   lr: 0.001

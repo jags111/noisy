@@ -1,6 +1,6 @@
 '''Utilities to measure the performance and runtime of parts of the code. Used
 mostly during trainig.'''
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
 import time
 
@@ -47,7 +47,7 @@ class PerfMeasurer:
     def __enter__(self) -> None:
         self.start_time = time.perf_counter()
 
-    def __exit__(self, *_) -> None:
+    def __exit__(self, *_: Any) -> None:
         stop_time = time.perf_counter()
         time_taken = stop_time - self.start_time
         if self.name not in get_perf_data():

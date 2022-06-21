@@ -1,5 +1,6 @@
 '''The model architecture. A combination of Convolutions and attention blocks,
 with multiple residual connections.'''
+from __future__ import annotations
 from typing import Optional, Tuple, Union
 from dataclasses import dataclass
 import torch
@@ -38,10 +39,11 @@ class AssumeShape(nn.Module):
         return t
 
 
-def timestep_embedding(x: Tensor, t: Union[float, Tensor], n: int) -> Tensor:
+def timestep_embedding(ctx: ExecContext, n: int) -> ExecContext:
     '''Adds the timestep t as a collection of channels, 1, 2, ..., I, each with
     values roughly equal to sin(2 ** i * t). Somewhat similar to the embeddings
     common.y used in transformers.'''
+    x, t = ctx.x, ctx.t
     b, _, h, w = x.shape
     if isinstance(t, Tensor):
         b_, = t.shape
@@ -56,7 +58,8 @@ def timestep_embedding(x: Tensor, t: Union[float, Tensor], n: int) -> Tensor:
         emb = torch.ones((b, 1, h, w), device=x.device) * freq
         emb = torch.sin(emb)
         embs.append(emb)
-    return torch.cat([*embs, x], dim=1)
+    ctx.x = torch.cat([*embs, x], dim=1)
+    return ctx
 
 
 class Residual(nn.Module):
@@ -67,11 +70,13 @@ class Residual(nn.Module):
         self.mods = nn.Sequential(*modules)
         self.gain = gain
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, ctx: ExecContext) -> ExecContext:
+        x = ctx.x
         delta = self.mods(x)
         if self.gain != 1.:
             x = x * self.gain
-        return delta + x
+        ctx.x = delta + x
+        return ctx
 
 
 class AttentionBlock(nn.Module):
@@ -86,7 +91,7 @@ class AttentionBlock(nn.Module):
         self.v = nn.Conv2d(channels, channels, 1)
         self.proj_out = torch.nn.Conv2d(channels, channels, 1)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         h_ = x
         h_ = self.norm(h_)
         q = self.q(h_)
@@ -109,6 +114,30 @@ class AttentionBlock(nn.Module):
         return x + h_
 
 
+class X(nn.Module):
+    '''Only passes the `x` attribute of the execution context to the contained
+    module, updating the execution context along the way.'''
+
+    def __init__(self, mod: nn.Module) -> None:
+        super().__init__()
+        self.mod = mod
+
+    def forward(self, ctx: ExecContext) -> ExecContext:
+        ctx.x = self.mod(ctx.x)
+        return ctx
+
+
+@dataclass
+class ExecContext:
+    '''Container for the data that is propagated through the forward pass of
+    the network. This saves us from implementng a stateful `forward` method
+    that keeps track of the intermediate results. Instead, we can define some
+    helper functions and classes (concretely the `Residual` module and the `X`
+    module).'''
+    x: Tensor
+    t: Tensor
+
+
 class Model(nn.Module):
     '''The diffusion model.'''
 
@@ -116,64 +145,70 @@ class Model(nn.Module):
         super().__init__()
         self.cfg = cfg
         c = Cursor(mult=self.cfg.arch.width_mult)
-        gain = 1 / 2**0.5
+        gain = 1.
         tsc = self.cfg.arch.timestep_channels
         self.main = nn.Sequential(
             # 64
-            self.block(self.cfg.img.channels + tsc, c(2), gain=gain),
-            nn.Conv2d(c(), c(), 3, 2, 1),
-            self.nonlin(),
+            X(self.block(self.cfg.img.channels + tsc, c(2), gain=gain)),
+            X(nn.Conv2d(c(), c(), 3, 2, 1)),
+            X(self.nonlin()),
             # 32
             Residual(
-                self.block(c(), c(4), gain=gain),
-                nn.Conv2d(c(), c(), 3, 2, 1),
-                self.nonlin(),
+                X(self.block(c(), c(4), gain=gain)),
+                X(nn.Conv2d(c(), c(), 3, 2, 1)),
+                X(self.nonlin()),
                 # 16
                 Residual(
-                    self.block(c(), c(8), gain=gain),
-                    AttentionBlock(c()),
-                    nn.Conv2d(c(), c(), 3, 2, 1),
-                    self.nonlin(),
+                    X(self.block(c(), c(8), gain=gain)),
+                    X(AttentionBlock(c())),
+                    X(nn.Conv2d(c(), c(), 3, 2, 1)),
+                    X(self.nonlin()),
                     # 8
                     Residual(
-                        self.block(c(), c(16), gain=gain),
-                        self.block(c(), c(), gain=gain),
-                        AttentionBlock(c()),
-                        nn.Conv2d(c(), c(8), 1, 1, 0),
+                        X(self.block(c(), c(16), gain=gain)),
+                        X(self.block(c(), c(), gain=gain)),
+                        X(AttentionBlock(c())),
+                        X(nn.Conv2d(c(), 1, 1, 0)),
                     ),
-                    nn.ConvTranspose2d(c(), c(), 2, 2, 0),
+                    X(nn.ConvTranspose2d(c(), c(), 2, 2, 0)),
                     # 16
-                    self.nonlin(),
-                    self.block(c(), c(), gain=gain),
-                    AttentionBlock(c()),
-                    nn.Conv2d(c(), c(4), 1, 1, 0),
+                    X(self.nonlin()),
+                    X(self.block(c(), c(), gain=gain)),
+                    X(AttentionBlock(c())),
+                    X(nn.Conv2d(c(), c(4), 1, 1, 0)),
                 ),
-                nn.ConvTranspose2d(c(), c(), 2, 2, 0),
+                X(nn.ConvTranspose2d(c(), c(), 2, 2, 0)),
                 # 32
-                self.nonlin(),
-                self.block(c(), c(2), gain=gain),
-                nn.Conv2d(c(), c(), 1, 1, 0),
+                X(self.nonlin()),
+                X(self.block(c(), c(2), gain=gain)),
+                X(nn.Conv2d(c(), c(), 1, 1, 0)),
             ),
-            nn.ConvTranspose2d(c(), c(), 2, 2, 0),
+            X(nn.ConvTranspose2d(c(), c(), 2, 2, 0)),
             # 64
-            self.nonlin(),
-            self.block(c(), c(), gain=gain),
-            nn.Conv2d(c(), self.cfg.img.channels, 1, 1, 0),
+            X(self.nonlin()),
+            X(self.block(c(), c(), gain=gain)),
+            X(nn.Conv2d(c(), self.cfg.img.channels, 1, 1, 0)),
         )
 
     def nonlin(self) -> nn.Module:
         return nn.ReLU(inplace=True)
 
-    def forward(self, x: Tensor, t: Union[float, Tensor], std: float = 1.) -> Tensor:
-        xt = timestep_embedding(x, t, self.cfg.arch.timestep_channels)
-        delta = self.main(xt)
-        # Scale the delta to have mean 0 and std 1/T
-        delta = std * (delta - delta.mean()) / delta.std()
+    def forward(self, x: Tensor, t: Union[float, Tensor], std: float = 1.
+                ) -> Tensor:
+        if isinstance(t, float):
+            t = torch.tensor([t] * x.size(0))
+        ctx = ExecContext(x=x, t=t)
+        ctx = timestep_embedding(ctx, self.cfg.arch.timestep_channels)
+        delta = self.main(ctx)
+        # Scale the delta to have mean 0 and std `std`
+        delta = (delta - delta.mean()) / (delta.std() / std)
+        assert isinstance(delta, Tensor)
         return delta
 
     def block(self, in_c: int, c: int, gain: float = 1.) -> nn.Module:
         return nn.Sequential(
-            nn.Identity() if in_c == c else nn.Conv2d(in_c, c, 1, 1, 0),
+            nn.Identity() if in_c == c  # type: ignore
+            else nn.Conv2d(in_c, c, 1, 1, 0),
             Residual(
                 nn.Conv2d(c, c, 3, 1, 1),
                 self.nonlin(),

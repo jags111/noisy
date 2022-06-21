@@ -76,8 +76,9 @@ def init(workdir: Optional[Path], config: Optional[Path], force: bool,
 @click.option('--workdir', '-w', type=Path, default=None)
 @click.option('--checkpoint', '-c', type=Path, default=None)
 @click.option('--device', '-d', type=str, default=None)
+@click.option('--no-wandb', '-s', type=bool, default=False)
 def train(workdir: Optional[Path], checkpoint: Optional[Path],
-          device: Optional[str]) -> None:
+          device: Optional[str], no_wandb: bool) -> None:
     '''Train the model in the specified checkpoint. If no checkpoint is
     specified, default to the most recent checkpoint.'''
     if checkpoint is None:
@@ -88,6 +89,8 @@ def train(workdir: Optional[Path], checkpoint: Optional[Path],
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     device_ = torch.device(device)
     cfg, model, optim, ctx = noisy.workdir.load_checkpoint(checkpoint, device_)
+    if no_wandb:
+        cfg.wandb.enable = False
     relpath = noisy.utils.rel_path(checkpoint.resolve())
     logger.info(f'Loaded run from: {relpath}')
     ds = noisy.dataset.ImgDataset(cfg)
@@ -96,7 +99,7 @@ def train(workdir: Optional[Path], checkpoint: Optional[Path],
 
 @cli.command('syn')
 @click.option('--number', '-n', type=_int, default=1,
-              help='Number of images to synthesise')
+              help='Number of images to sample')
 @click.option('--iters', '-i', type=_int, default=None)
 @click.option('--show-intermediate', type=_int, default=None,
               help='Show the intermediate result every n steps')
@@ -118,14 +121,14 @@ def syn(number: int, iters: Optional[int], show_intermediate: Optional[int],
     cfg = noisy.workdir.load_cfg(checkpoint)
     model = noisy.workdir.load_model(checkpoint, cfg)
     if show_intermediate is None:
-        img = noisy.synthesize.synthesize(model, cfg, number, iterations=iters,
-                                          std=std, show_bar=True,
-                                          device=device_)
+        img = noisy.sampling.sample(model, cfg, number, iterations=iters,
+                                    std=std, show_bar=True,
+                                    device=device_)
     else:
-        imgs = noisy.synthesize.synthesize_iter(model, cfg, number,
-                                                show_intermediate,
-                                                iterations=iters, std=std,
-                                                show_bar=True, device=device_)
+        imgs = noisy.sampling.sample_iter(model, cfg, number,
+                                          show_intermediate,
+                                          iterations=iters, std=std,
+                                          show_bar=True, device=device_)
         img = torch.cat([*imgs])
     img_norm = img * 0.5 + 0.5
     noisy.utils.show(img_norm, clip=True)
@@ -135,19 +138,12 @@ def syn(number: int, iters: Optional[int], show_intermediate: Optional[int],
 @click.option('--task', '-t', type=str, default='te')
 def dev(task: str) -> None:
     '''For debugging and development, please ignore :)'''
-    if task == 'te':
-        # Display timestep embeddings
-        x = torch.ones(10, 1, 32, 32)
-        t = torch.rand((10,))
-        emb = noisy.models.timestep_embedding(x, t, 1)
-        print(t)
-        noisy.utils.show(emb[:, :-1])
-    elif task == 'diff':
+    if task == 'diff':
         # Display diffusion
         x = torch.ones(10, 1, 32, 32)
         beta = torch.rand((10,))
         noise = torch.randn((10, 1, 32, 32))
-        diff = noisy.training.diffuse(x, beta, noise)
+        diff = noisy.training.diffuse(x, beta, noise, 'linear')
         print(beta)
         noisy.utils.show(diff)
 

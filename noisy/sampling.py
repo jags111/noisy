@@ -7,12 +7,15 @@ from .models import Model
 from .utils import AttrDict
 
 
-def _syn_step(model: Model, t: float, img: Tensor, std: float) -> Tensor:
+def _sample_step(model: Model, t: float, img: Tensor, std: float) -> Tensor:
     with torch.no_grad():
-        return img + model(img, t, std)
+        img = img + model(img, t, std)
+        assert isinstance(img, Tensor)
+        return img
 
 
-def _resolve_device(device: Optional[Union[str, torch.device]]) -> torch.device:
+def _resolve_device(device: Optional[Union[str, torch.device]]
+                    ) -> torch.device:
     if device is None:
         return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if isinstance(device, str):
@@ -28,26 +31,26 @@ def _resolve_img(img: Optional[Tensor], cfg: AttrDict, device: torch.device,
     return img_
 
 
-def synthesize(model: Model, cfg: AttrDict, number: int,
-               iterations: Optional[int] = None,
-               std: Optional[float] = None,
-               device: Optional[torch.device] = None,
-               show_bar: bool = False,
-               img: Optional[Tensor] = None) -> Tensor:
+def sample(model: Model, cfg: AttrDict, number: int,
+           iterations: Optional[int] = None,
+           std: Optional[float] = None,
+           device: Optional[torch.device] = None,
+           show_bar: bool = False,
+           img: Optional[Tensor] = None) -> Tensor:
     '''Sample the model.'''
-    it = synthesize_iter(model, cfg, number, yield_every=None,
-                         iterations=iterations, std=std,
-                         device=device, show_bar=show_bar, img=img)
+    it = sample_iter(model, cfg, number, yield_every=None,
+                     iterations=iterations, std=std,
+                     device=device, show_bar=show_bar, img=img)
     return next(it)
 
 
-def synthesize_iter(model: Model, cfg: AttrDict, number: int,
-                    yield_every: Optional[int] = 1,
-                    iterations: Optional[int] = None,
-                    std: Optional[float] = None,
-                    device: Optional[torch.device] = None,
-                    show_bar: bool = False,
-                    img: Optional[Tensor] = None) -> Iterator[Tensor]:
+def sample_iter(model: Model, cfg: AttrDict, number: int,
+                yield_every: Optional[int] = 1,
+                iterations: Optional[int] = None,
+                std: Optional[float] = None,
+                device: Optional[torch.device] = None,
+                show_bar: bool = False,
+                img: Optional[Tensor] = None) -> Iterator[Tensor]:
     device_ = _resolve_device(device)
     model.to(device).eval()
     img_ = _resolve_img(img, cfg, device_, number)
@@ -68,4 +71,4 @@ def synthesize_iter(model: Model, cfg: AttrDict, number: int,
     for t in it:
         if (t + 1) % yield_every == 0:
             yield img_
-        img_ = _syn_step(model, t / iterations, img_, std)
+        img_ = _sample_step(model, t / iterations, img_, std)

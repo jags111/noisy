@@ -1,4 +1,4 @@
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, Dict, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from logging import getLogger
@@ -14,7 +14,7 @@ from wandb.sdk.wandb_run import Run as WandbRun
 
 from .models import Model
 from .utils import AttrDict, rel_path, make_symlink, random_name, ema
-from .synthesize import synthesize
+from .sampling import sample
 from . import workdir
 from .perf import PerfMeasurer, get_totals as get_perf_totals
 
@@ -34,9 +34,11 @@ class TrainingContext:
         return self.iteration % freq == 0
 
 
-def diffuse(x: Tensor, beta: Union[float, Tensor], noise: Tensor) -> Tensor:
+def diffuse(x: Tensor, beta: Union[float, Tensor], noise: Tensor,
+            method_or_cfg: Union[str, AttrDict]) -> Tensor:
     '''Perform diffusion on the image. Intuitively: The larger the beta, the
     more noise.'''
+    # Check beta
     if isinstance(beta, Tensor):
         assert 0. <= beta.min() and 1 >= beta.max(), beta
         b, = beta.shape
@@ -44,14 +46,28 @@ def diffuse(x: Tensor, beta: Union[float, Tensor], noise: Tensor) -> Tensor:
         beta = beta.reshape(-1, 1, 1, 1)
     else:
         assert 0 <= beta <= 1., f'beta should be in [0, 1], but is {beta}'
-    x = (1 - beta) ** 0.5 * x + beta ** 0.5 * noise
+    # Check method
+    if isinstance(method_or_cfg, str):
+        method = method_or_cfg
+    else:
+        method = method_or_cfg.arch.diffusion_method
+    methods: Dict[str, Callable[[], Tensor]] = {
+        'sqrt': lambda: ((1 - beta) ** 0.5 * x  # type: ignore
+                         + beta ** 0.5 * noise),
+        'linear': lambda: (1 - beta) * x + beta * noise,
+    }
+    if method not in methods:
+        raise ValueError(f'Unknown diffusion method: {method}, expected one of'
+                         f' {list(methods.keys())}')
+    # Execute
+    x = methods[method]()
     assert isinstance(x, Tensor)
     return x
 
 
 def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
           ctx: TrainingContext, wd: Path, device: torch.device) -> None:
-    dl = DataLoader(ds, cfg.training.batch_size)
+    dl = DataLoader(ds, cfg.training.batch_size, shuffle=True, pin_memory=True)
     batches = (batch for _ in count() for batch in dl)
     if cfg.wandb.enable:
         wandb_run = load_wandb_run(ctx, cfg, model)
@@ -69,10 +85,10 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
                               size=(batch_size,), device=device)
             # Add noise to the target..
             targets_beta = t / cfg.T
-            target = diffuse(batch, targets_beta, noise)
+            target = diffuse(batch, targets_beta, noise, cfg)
             # ...and slightly stronger noise to the inputs.
             images_beta = (t + cfg.training.steps) / cfg.T
-            images = diffuse(batch, images_beta, noise)
+            images = diffuse(batch, images_beta, noise, cfg)
         with PerfMeasurer('train.run'):
             # (2) Pass the inputs to the model and iterate for
             # `cfg.training.steps` steps.
@@ -149,9 +165,9 @@ def img_to_wandb(run: WandbRun,
                  cfg: AttrDict,
                  ctx: TrainingContext,
                  device: torch.device) -> None:
-    imgs = synthesize(model, cfg, number=8, show_bar=False, device=device)
+    imgs = sample(model, cfg, number=8, show_bar=False, device=device)
     imgs_np = imgs.cpu().detach().numpy()
-    imgs_np = imgs_np.transpose((0, 2, 3, 1))  # type: ignore
+    imgs_np = imgs_np.transpose((0, 2, 3, 1))
     log_dict = {
         'Imgs': [wandb.Image(gen_img) for gen_img in imgs_np],
     }
