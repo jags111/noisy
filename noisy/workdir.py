@@ -1,6 +1,6 @@
 '''Functions to deal with working directories and checkpoints. Concretely,
 saving and loading components of the training and sampling process.'''
-from typing import Union, Tuple
+from typing import Union, Tuple, Optional
 from dataclasses import asdict
 from logging import getLogger
 from pathlib import Path
@@ -26,7 +26,7 @@ def init(wd: Path, cfg: Union[AttrDict, Path], force: bool = False) -> Path:
     if isinstance(cfg, Path):
         cfg = AttrDict.from_yaml(cfg)
     # Remove the previous workdir if the force flag is set
-    if force:
+    if force and wd.exists():
         logger.info(f'Removing existing directory: {wd}')
         shutil.rmtree(str(wd))
     wd.mkdir(parents=True)
@@ -73,7 +73,9 @@ def save_model(cp: Path, model: Model) -> None:
     torch.save(state, cp / 'model.state.pt')
 
 
-def load_model(cp: Path, cfg: AttrDict) -> Model:
+def load_model(cp: Path, cfg: Optional[AttrDict] = None) -> Model:
+    if cfg is None:
+        cfg = load_cfg(cp)
     state = torch.load(cp / 'model.state.pt')  # type: ignore
     model = Model(cfg)
     model.load_state_dict(state)

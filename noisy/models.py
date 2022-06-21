@@ -3,6 +3,7 @@ with multiple residual connections.'''
 from __future__ import annotations
 from typing import Optional, Tuple, Union
 from dataclasses import dataclass
+import math
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -39,27 +40,16 @@ class AssumeShape(nn.Module):
         return t
 
 
-def timestep_embedding(ctx: ExecContext, n: int) -> ExecContext:
+def timestep_embedding(t: Tensor, dim: int, device: torch.device) -> Tensor:
     '''Adds the timestep t as a collection of channels, 1, 2, ..., I, each with
     values roughly equal to sin(2 ** i * t). Somewhat similar to the embeddings
     common.y used in transformers.'''
-    x, t = ctx.x, ctx.t
-    b, _, h, w = x.shape
-    if isinstance(t, Tensor):
-        b_, = t.shape
-        assert b_ == b
-        assert 0. <= t.min() and t.max() <= 1., t
-        t = t.reshape(-1, 1, 1, 1)
-    else:
-        assert 0. <= t <= 1.
-    embs = []
-    for i in range(n):
-        freq = 0.5 * torch.pi * t * 2 ** i
-        emb = torch.ones((b, 1, h, w), device=x.device) * freq
-        emb = torch.sin(emb)
-        embs.append(emb)
-    ctx.x = torch.cat([*embs, x], dim=1)
-    return ctx
+    assert dim % 2 == 0, f'dim should be even but is {dim}'
+    span = math.log(10000) / (dim // 2 - 1)
+    emb = torch.exp(torch.arange(dim // 2, device=device) * -span)
+    emb = t[:, None] * emb[None, :]
+    emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
+    return emb
 
 
 class Residual(nn.Module):
@@ -70,13 +60,12 @@ class Residual(nn.Module):
         self.mods = nn.Sequential(*modules)
         self.gain = gain
 
-    def forward(self, ctx: ExecContext) -> ExecContext:
-        x = ctx.x
+    def forward(self, x: Tensor) -> Tensor:
         delta = self.mods(x)
         if self.gain != 1.:
             x = x * self.gain
-        ctx.x = delta + x
-        return ctx
+        x = delta + x
+        return x
 
 
 class AttentionBlock(nn.Module):
@@ -114,28 +103,19 @@ class AttentionBlock(nn.Module):
         return x + h_
 
 
-class X(nn.Module):
-    '''Only passes the `x` attribute of the execution context to the contained
-    module, updating the execution context along the way.'''
+class ConvUpsample(nn.Module):
 
-    def __init__(self, mod: nn.Module) -> None:
+    def __init__(self, c: int) -> None:
         super().__init__()
-        self.mod = mod
+        self.conv = nn.ConvTranspose2d(c, c, 2, 2, 0)
+        self.up = nn.Upsample(scale_factor=2.)
 
-    def forward(self, ctx: ExecContext) -> ExecContext:
-        ctx.x = self.mod(ctx.x)
-        return ctx
-
-
-@dataclass
-class ExecContext:
-    '''Container for the data that is propagated through the forward pass of
-    the network. This saves us from implementng a stateful `forward` method
-    that keeps track of the intermediate results. Instead, we can define some
-    helper functions and classes (concretely the `Residual` module and the `X`
-    module).'''
-    x: Tensor
-    t: Tensor
+    def forward(self, x: Tensor) -> Tensor:
+        up = self.up(x)
+        dx = self.conv(x)
+        x = up + dx
+        assert isinstance(x, Tensor)
+        return x
 
 
 class Model(nn.Module):
@@ -149,59 +129,65 @@ class Model(nn.Module):
         tsc = self.cfg.arch.timestep_channels
         self.main = nn.Sequential(
             # 64
-            X(self.block(self.cfg.img.channels + tsc, c(2), gain=gain)),
-            X(nn.Conv2d(c(), c(), 3, 2, 1)),
-            X(self.nonlin()),
+            self.block(self.cfg.img.channels + tsc, c(2), gain=gain),
+            self.downsample(c(), c()),
+            self.nonlin(),
             # 32
             Residual(
-                X(self.block(c(), c(4), gain=gain)),
-                X(nn.Conv2d(c(), c(), 3, 2, 1)),
-                X(self.nonlin()),
+                self.block(c(), c(4), gain=gain),
+                self.downsample(c(), c()),
+                self.nonlin(),
                 # 16
                 Residual(
-                    X(self.block(c(), c(8), gain=gain)),
-                    X(AttentionBlock(c())),
-                    X(nn.Conv2d(c(), c(), 3, 2, 1)),
-                    X(self.nonlin()),
+                    self.block(c(), c(8), gain=gain),
+                    AttentionBlock(c()),
+                    self.downsample(c(), c()),
+                    self.nonlin(),
                     # 8
                     Residual(
-                        X(self.block(c(), c(16), gain=gain)),
-                        X(self.block(c(), c(), gain=gain)),
-                        X(AttentionBlock(c())),
-                        X(nn.Conv2d(c(), 1, 1, 0)),
+                        self.block(c(), c(16), gain=gain),
+                        self.block(c(), c(), gain=gain),
+                        AttentionBlock(c()),
+                        nn.Conv2d(c(), c(8), 1, 1, 0),
                     ),
-                    X(nn.ConvTranspose2d(c(), c(), 2, 2, 0)),
+                    self.upsample(c()),
                     # 16
-                    X(self.nonlin()),
-                    X(self.block(c(), c(), gain=gain)),
-                    X(AttentionBlock(c())),
-                    X(nn.Conv2d(c(), c(4), 1, 1, 0)),
+                    self.nonlin(),
+                    self.block(c(), c(), gain=gain),
+                    AttentionBlock(c()),
+                    nn.Conv2d(c(), c(4), 1, 1, 0),
                 ),
-                X(nn.ConvTranspose2d(c(), c(), 2, 2, 0)),
+                self.upsample(c()),
                 # 32
-                X(self.nonlin()),
-                X(self.block(c(), c(2), gain=gain)),
-                X(nn.Conv2d(c(), c(), 1, 1, 0)),
+                self.nonlin(),
+                self.block(c(), c(2), gain=gain),
+                nn.Conv2d(c(), c(), 1, 1, 0),
             ),
-            X(nn.ConvTranspose2d(c(), c(), 2, 2, 0)),
+            self.upsample(c()),
             # 64
-            X(self.nonlin()),
-            X(self.block(c(), c(), gain=gain)),
-            X(nn.Conv2d(c(), self.cfg.img.channels, 1, 1, 0)),
+            self.nonlin(),
+            self.block(c(), c(), gain=gain),
+            nn.Conv2d(c(), self.cfg.img.channels, 1, 1, 0),
         )
 
     def nonlin(self) -> nn.Module:
         return nn.ReLU(inplace=True)
 
-    def forward(self, x: Tensor, t: Union[float, Tensor], std: float = 1.
-                ) -> Tensor:
-        if isinstance(t, float):
-            t = torch.tensor([t] * x.size(0))
-        ctx = ExecContext(x=x, t=t)
-        ctx = timestep_embedding(ctx, self.cfg.arch.timestep_channels)
-        delta = self.main(ctx)
-        # Scale the delta to have mean 0 and std `std`
-        delta = (delta - delta.mean()) / (delta.std() / std)
+    def downsample(self, ch_in: int, ch_out: int) -> nn.Module:
+        return nn.Conv2d(ch_in, ch_out, 3, 2, 1)
+
+    def upsample(self, c: int) -> nn.Module:
+        return ConvUpsample(c)
+
+    def forward(self, x: Tensor, t: Union[int, Tensor]) -> Tensor:
+        batch_size, _, h, w = x.shape
+        if isinstance(t, int):
+            t = torch.tensor([t] * batch_size, device=x.device)
+        ts = timestep_embedding(t, self.cfg.arch.timestep_channels,
+                                x.device)
+        ts = ts.reshape([batch_size, -1, 1, 1]).expand(batch_size, -1, h, w)
+        inputs = torch.cat([ts, x], dim=1)
+        delta = self.main(inputs)
         assert isinstance(delta, Tensor)
         return delta
 

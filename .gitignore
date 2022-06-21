@@ -5,3 +5,4 @@ data
 .name_counter
 wandb/
 viking-logs/
+.ipynb_checkpoints/

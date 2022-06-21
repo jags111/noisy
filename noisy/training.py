@@ -1,4 +1,4 @@
-from typing import Optional, Any, Union, Dict, Callable
+from typing import Optional, Any, Union
 from dataclasses import dataclass
 from pathlib import Path
 from logging import getLogger
@@ -14,9 +14,9 @@ from wandb.sdk.wandb_run import Run as WandbRun
 
 from .models import Model
 from .utils import AttrDict, rel_path, make_symlink, random_name, ema
-from .sampling import sample
 from . import workdir
 from .perf import PerfMeasurer, get_totals as get_perf_totals
+from .diffusion import get_beta_sched, get_alpha_cumprod_sched, sample
 
 
 logger = getLogger('noisy.training')
@@ -34,35 +34,17 @@ class TrainingContext:
         return self.iteration % freq == 0
 
 
-def diffuse(x: Tensor, beta: Union[float, Tensor], noise: Tensor,
-            method_or_cfg: Union[str, AttrDict]) -> Tensor:
-    '''Perform diffusion on the image. Intuitively: The larger the beta, the
-    more noise.'''
-    # Check beta
-    if isinstance(beta, Tensor):
-        assert 0. <= beta.min() and 1 >= beta.max(), beta
-        b, = beta.shape
-        assert x.size(0) == b
-        beta = beta.reshape(-1, 1, 1, 1)
-    else:
-        assert 0 <= beta <= 1., f'beta should be in [0, 1], but is {beta}'
-    # Check method
-    if isinstance(method_or_cfg, str):
-        method = method_or_cfg
-    else:
-        method = method_or_cfg.arch.diffusion_method
-    methods: Dict[str, Callable[[], Tensor]] = {
-        'sqrt': lambda: ((1 - beta) ** 0.5 * x  # type: ignore
-                         + beta ** 0.5 * noise),
-        'linear': lambda: (1 - beta) * x + beta * noise,
-    }
-    if method not in methods:
-        raise ValueError(f'Unknown diffusion method: {method}, expected one of'
-                         f' {list(methods.keys())}')
-    # Execute
-    x = methods[method]()
-    assert isinstance(x, Tensor)
-    return x
+def forward_diffuse(img: Tensor, t: Union[int, Tensor],
+                    alpha_cumprod_sched: Tensor, noise: Optional[Tensor] = None
+                    ) -> Tensor:
+    if isinstance(t, int):
+        t = torch.tensor([t] * img.size(0), device=img.device)
+    if noise is None:
+        noise = torch.randn_like(img)
+    alpha_cumprods = alpha_cumprod_sched[t].reshape(-1, 1, 1, 1)
+    img = (alpha_cumprods.sqrt() * img
+           + (1 - alpha_cumprods).sqrt() * noise)
+    return img
 
 
 def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
@@ -73,30 +55,29 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
         wandb_run = load_wandb_run(ctx, cfg, model)
     else:
         wandb_run = None
+    beta_sched = get_beta_sched(cfg).to(device)
+    alpha_cumprod_sched = get_alpha_cumprod_sched(beta_sched).to(device)
     for batch in batches:
         model.train().to(device)
         with PerfMeasurer('train.prep'):
             # (1) Prepare the data.
             batch = batch.to(device)
             batch_size = batch.size(0)
-            noise = torch.randn(batch.shape, device=device)
             # Pick a random t for each sample in the batch
-            t = torch.randint(cfg.T - cfg.training.steps - 1,
-                              size=(batch_size,), device=device)
+            t = torch.randint(cfg.diffusion.T, size=(batch_size,),
+                              device=device)
+            alpha_cumprods = alpha_cumprod_sched[t].reshape(-1, 1, 1, 1)
             # Add noise to the target..
-            targets_beta = t / cfg.T
-            target = diffuse(batch, targets_beta, noise, cfg)
-            # ...and slightly stronger noise to the inputs.
-            images_beta = (t + cfg.training.steps) / cfg.T
-            images = diffuse(batch, images_beta, noise, cfg)
-        with PerfMeasurer('train.run'):
+            noise = torch.randn_like(batch)
+            inputs = (alpha_cumprods.sqrt() * batch
+                      + (1 - alpha_cumprods).sqrt() * noise)
+        with PerfMeasurer('train.model'):
             # (2) Pass the inputs to the model and iterate for
             # `cfg.training.steps` steps.
             model.zero_grad()
-            for dt in range(cfg.training.steps):
-                t_ = t - dt + cfg.training.steps
-                images = images + model(images, t_ / cfg.T, std=1 / cfg.T)
-            loss = F.mse_loss(images, target)
+            estimate = model(inputs, t)
+        with PerfMeasurer('train.optim'):
+            loss = F.mse_loss(estimate, noise)
             loss.backward()  # type: ignore
             optim.step()
         if ctx.periodically(cfg.training.metrics_freq):
@@ -165,7 +146,7 @@ def img_to_wandb(run: WandbRun,
                  cfg: AttrDict,
                  ctx: TrainingContext,
                  device: torch.device) -> None:
-    imgs = sample(model, cfg, number=8, show_bar=False, device=device)
+    imgs = sample(model, cfg, 8, device=device)
     imgs_np = imgs.cpu().detach().numpy()
     imgs_np = imgs_np.transpose((0, 2, 3, 1))
     log_dict = {

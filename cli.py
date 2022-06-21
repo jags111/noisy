@@ -53,16 +53,23 @@ def cli() -> None:
 @cli.command('init')
 @click.option('--workdir', '-w', type=Path, default=None)
 @click.option('--config', '-c', type=Path, default=None)
-@click.option('--force', '-f', type=bool, default=False)
+@click.option('--force', '-f', is_flag=True, default=False)
+@click.option('--tmp', '-f', is_flag=True, default=False,
+              help='Only for temporary projects, e.g. during debugging. '
+              'Disables WandB.')
 @click.option('--wandb-name', '-n', type=str, default=None)
 def init(workdir: Optional[Path], config: Optional[Path], force: bool,
-         wandb_name: Optional[str]) -> None:
+         tmp: bool, wandb_name: Optional[str]) -> None:
     '''Instantiate a new, untrained model.'''
-    if workdir is None:
-        workdir = DEFAULT_ZOO / noisy.utils.random_name()
     if config is None:
         config = DEFAULT_CONFIG
     cfg = noisy.utils.AttrDict.from_yaml(config)
+    if tmp:
+        workdir = DEFAULT_ZOO / 'tmp'
+        force = True
+        cfg.wandb.enable = False
+    if workdir is None:
+        workdir = DEFAULT_ZOO / noisy.utils.random_name()
     if wandb_name is not None:
         cfg.wandb.name = wandb_name
     logger.info(f'Initializing new run in: {workdir}, using the configuration '
@@ -76,7 +83,7 @@ def init(workdir: Optional[Path], config: Optional[Path], force: bool,
 @click.option('--workdir', '-w', type=Path, default=None)
 @click.option('--checkpoint', '-c', type=Path, default=None)
 @click.option('--device', '-d', type=str, default=None)
-@click.option('--no-wandb', '-s', type=bool, default=False)
+@click.option('--no-wandb', '-s', is_flag=True, default=False)
 def train(workdir: Optional[Path], checkpoint: Optional[Path],
           device: Optional[str], no_wandb: bool) -> None:
     '''Train the model in the specified checkpoint. If no checkpoint is
@@ -97,19 +104,13 @@ def train(workdir: Optional[Path], checkpoint: Optional[Path],
     noisy.training.train(cfg, model, optim, ds, ctx, workdir, device_)
 
 
-@cli.command('syn')
+@cli.command('sample')
 @click.option('--number', '-n', type=_int, default=1,
               help='Number of images to sample')
-@click.option('--iters', '-i', type=_int, default=None)
-@click.option('--show-intermediate', type=_int, default=None,
-              help='Show the intermediate result every n steps')
-@click.option('--std', type=_float, default=None,
-              help='Scaling factor of each model invocation')
 @click.option('--checkpoint', '-c', type=Path, default=None)
 @click.option('--device', '-d', type=str, default=None)
-def syn(number: int, iters: Optional[int], show_intermediate: Optional[int],
-        std: Optional[float], checkpoint: Optional[Path], device: Optional[str]
-        ) -> None:
+def sample(number: int, checkpoint: Optional[Path], device: Optional[str]
+           ) -> None:
     '''Sample from the model in the specified checkpoint. If no checkpoint is
     specified, default to the most recent checkpoint.'''
     if checkpoint is None:
@@ -117,35 +118,18 @@ def syn(number: int, iters: Optional[int], show_intermediate: Optional[int],
     if device is None:
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     logger.info(f'Loading model from {checkpoint}...')
-    device_ = torch.device(device)
     cfg = noisy.workdir.load_cfg(checkpoint)
     model = noisy.workdir.load_model(checkpoint, cfg)
-    if show_intermediate is None:
-        img = noisy.sampling.sample(model, cfg, number, iterations=iters,
-                                    std=std, show_bar=True,
-                                    device=device_)
-    else:
-        imgs = noisy.sampling.sample_iter(model, cfg, number,
-                                          show_intermediate,
-                                          iterations=iters, std=std,
-                                          show_bar=True, device=device_)
-        img = torch.cat([*imgs])
+    img = noisy.diffusion.sample(model, cfg, number, device=device)
     img_norm = img * 0.5 + 0.5
     noisy.utils.show(img_norm, clip=True)
 
 
 @cli.command('dev')
-@click.option('--task', '-t', type=str, default='te')
+@click.option('--task', '-t', type=str)
 def dev(task: str) -> None:
     '''For debugging and development, please ignore :)'''
-    if task == 'diff':
-        # Display diffusion
-        x = torch.ones(10, 1, 32, 32)
-        beta = torch.rand((10,))
-        noise = torch.randn((10, 1, 32, 32))
-        diff = noisy.training.diffuse(x, beta, noise, 'linear')
-        print(beta)
-        noisy.utils.show(diff)
+    pass
 
 
 if __name__ == '__main__':
