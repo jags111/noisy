@@ -171,9 +171,9 @@ def dev(task: str) -> None:
               help='Path to the checkpoint to be loaded.')
 @click.option('--script', type=Path, default=Path('viking-script.sh'))
 @click.option('--logfile', type=Path, default=None)
-@click.option('--hours', '-h', type=int, required=True)
+@click.option('--time', type=str, required=True)
 @click.option('--email', type=str, default=None)
-def slurm(checkpoint: Optional[Path], script: Path, logfile: Path, hours: int,
+def slurm(checkpoint: Optional[Path], script: Path, logfile: Path, time: str,
           email: Optional[str]) -> None:
     '''Submits a batch job to Slurm. For compute clusters.'''
     checkpoint = _ensure_cp(checkpoint)
@@ -184,7 +184,6 @@ def slurm(checkpoint: Optional[Path], script: Path, logfile: Path, hours: int,
     if logfile is None:
         logfile = checkpoint.parent / 'viking.log'
     logfile.parent.mkdir(parents=True, exist_ok=True)
-    time_minutes = int(hours * 60)
     cmd = [
         'sbatch',
         str(script),
@@ -194,7 +193,7 @@ def slurm(checkpoint: Optional[Path], script: Path, logfile: Path, hours: int,
         '--output', str(logfile),
         '--partition', 'gpu',
         '--gres', 'gpu:1',
-        '--time', str(time_minutes),
+        '--time', time,
         '--export', ','.join(['ALL',
                               f'NOISY_CHECKPOINT={checkpoint}',
                               f'NOISY_DIR={os.getcwd()}']),
