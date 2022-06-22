@@ -1,4 +1,5 @@
 #!/bin/bash
+
 # Script to be run on compute clusters using Slurm.
 # The Slurm parameters are set by the CLI. See `./cli.py slurm --help`.
 
