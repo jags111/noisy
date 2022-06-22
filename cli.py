@@ -12,6 +12,7 @@ the --help flag to any command.
 from typing import Optional, Union
 import logging
 from pathlib import Path
+import subprocess
 import click
 import torch
 import math
@@ -163,6 +164,48 @@ def info(checkpoint: Optional[Path]) -> None:
 def dev(task: str) -> None:
     '''For debugging and development, please ignore :)'''
     pass
+
+
+@cli.command('slurm')
+@click.option('--checkpoint', '-c', type=Path, default=None,
+              help='Path to the checkpoint to be loaded.')
+@click.option('--script', type=Path, default=Path('viking-script.sh'))
+@click.option('--logfile', type=Path, default=None)
+@click.option('--hours', '-h', type=int, required=True)
+@click.option('--email', type=str, default=None)
+def slurm(checkpoint: Optional[Path], script: Path, logfile: Path, hours: int,
+          email: Optional[str]) -> None:
+    '''Submits a batch job to Slurm. For compute clusters.'''
+    checkpoint = _ensure_cp(checkpoint)
+    if not script.exists():
+        raise FileNotFoundError(f'Script does not exist: {script}')
+    if not checkpoint.exists():
+        raise FileNotFoundError(f'Checkpoint does not exist: {checkpoint}')
+    if logfile is None:
+        logfile = checkpoint.parent / 'viking.log'
+    logfile.parent.mkdir(parents=True, exist_ok=True)
+    time_minutes = int(hours * 60)
+    cmd = [
+        'sbatch',
+        str(script),
+        '--ntasks', '1',
+        '--cpus-per-task', '4',
+        '--mem', '10gb',
+        '--output', str(logfile),
+        '--partition', 'gpu',
+        '--gres', 'gpu:1',
+        '--time', str(time_minutes),
+        '--export', ','.join(['ALL',
+                              f'NOISY_CHECKPOINT={checkpoint}',
+                              f'NOISY_DIR={os.getcwd()}']),
+    ]
+    if email is not None:
+        cmd.extend([
+            '--mail-type', 'BEGIN,END,FAIL',
+            '--mail-user', email,
+        ])
+    logger.info(f'Running command: {" ".join(cmd)}')
+    subprocess.run(cmd)
 
 
 def _ensure_cp(checkpoint: Optional[Path]) -> Path:

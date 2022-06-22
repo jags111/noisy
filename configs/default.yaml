@@ -13,7 +13,7 @@ optim:
   weight_decay: 0.0
 
 training:
-  batch_size: 32
+  batch_size: 16
   log_freq: 10
   checkpoint_freq: 1000
   persist_freq: 50
