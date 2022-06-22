@@ -15,14 +15,16 @@ optim:
 training:
   batch_size: 32
   log_freq: 10
-  checkpoint_freq: 500
+  checkpoint_freq: 1000
+  persist_freq: 50
   metrics_freq: 5
-  steps: 1
 
 wandb:
   enable: true
   log_freq: 10
   img_freq: 100
+  img_n: 8
+  img_show_bar: true
   gradient_freq: 100
   project: noisy
   group: birds

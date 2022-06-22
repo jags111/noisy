@@ -2,7 +2,7 @@ from typing import Union, Iterator, Optional
 from logging import getLogger
 import torch
 from torch import Tensor
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
 from .utils import AttrDict
 from .models import Model

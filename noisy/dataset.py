@@ -44,7 +44,7 @@ class ImgDataset(Dataset[Tensor]):
             static_transform_steps.append(transforms.transforms.Grayscale())
         self.static_transform = transforms.Compose(static_transform_steps)
         if not self.lazy:
-            self.cache = self._get_cache()
+            self.set_cache(self._get_cache())
 
     def _get_cache(self) -> Tensor:
         '''Collects all files inside the data directory and loads them all into
@@ -110,17 +110,16 @@ class ImgDataset(Dataset[Tensor]):
     @property
     def cache(self) -> Tensor:
         if self._cache is None:
-            self.cache = self._get_cache()
+            self.set_cache(self._get_cache())
         assert self._cache is not None
         return self._cache
 
-    @cache.setter
-    def cache(self, cache: Tensor) -> None:
+    def set_cache(self, cache: Tensor) -> None:
         c: int = self.cfg.img.channels
         s: int = self.cfg.img.size
         assert cache.size(1) == c
         assert cache.size(2) == cache.size(3) == s
-        self._cache == cache
+        self._cache = cache
 
     def __getitem__(self, index: int) -> Tensor:
         return self.dynamic_transform(self.cache[index])  # type: ignore

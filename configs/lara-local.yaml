@@ -9,33 +9,32 @@ arch:
 
 optim:
   lr: 0.0001
-  weight_decay: 0.0001
+  weight_decay: 0.0
 
 training:
-  batch_size: 32
+  batch_size: 7
   log_freq: 10
   checkpoint_freq: 2000
-  persist_freq: 50
   metrics_freq: 5
 
 wandb:
   enable: true
   log_freq: 10
-  img_freq: 2000
-  img_n: 8
-  img_show_bar: false
-  gradient_freq: 500
+  img_freq: 1000
+  img_n: 4
+  img_show_bar: true
+  gradient_freq: 100
   project: noisy
   group: birds
-  name: lara
-  tags: [birds, rgb, size_128x128, viking, width_64]
+  name: lara-local
+  tags: [birds, rgb, size_64x64, local, width_64]
 
 img:
   size: 128
   channels: 3
 
 data:
-  path: ../data/birds/
+  path: ./data/birds/
   extensions:
     - .jpeg
     - .jpg

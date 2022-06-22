@@ -57,57 +57,75 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
         wandb_run = None
     beta_sched = get_beta_sched(cfg).to(device)
     alpha_cumprod_sched = get_alpha_cumprod_sched(beta_sched).to(device)
-    for batch in batches:
-        model.train().to(device)
-        with PerfMeasurer('train.prep'):
-            # (1) Prepare the data.
-            batch = batch.to(device)
-            batch_size = batch.size(0)
-            # Pick a random t for each sample in the batch
-            t = torch.randint(cfg.diffusion.T, size=(batch_size,),
-                              device=device)
-            alpha_cumprods = alpha_cumprod_sched[t].reshape(-1, 1, 1, 1)
-            # Add noise to the target..
-            noise = torch.randn_like(batch)
-            inputs = (alpha_cumprods.sqrt() * batch
-                      + (1 - alpha_cumprods).sqrt() * noise)
-        with PerfMeasurer('train.model'):
-            # (2) Pass the inputs to the model and iterate for
-            # `cfg.training.steps` steps.
-            model.zero_grad()
-            estimate = model(inputs, t)
-        with PerfMeasurer('train.optim'):
-            loss = F.mse_loss(estimate, noise)
-            loss.backward()  # type: ignore
-            optim.step()
-        if ctx.periodically(cfg.training.metrics_freq):
-            with PerfMeasurer('train.metrics'):
-                with torch.no_grad():
-                    # (3) Update the EMA of the loss and do other housekeeping.
-                    abs_loss = float(loss.detach().mean().sqrt().item())
-                ctx.loss_ema = ema(abs_loss, ctx.loss_ema)
-        # Advance the iteration counter.
-        ctx.iteration += 1
-        # Logging to stdout.
-        if ctx.periodically(cfg.training.log_freq):
-            logger.info(f'{ctx.iteration} | {ctx.loss_ema:5.7}')
-        # Logging to WandB.
-        if cfg.wandb.enable and ctx.periodically(cfg.wandb.log_freq):
-            with PerfMeasurer('train.wandb.log'):
-                assert wandb_run is not None
-                log_to_wandb(wandb_run, cfg, ctx)
-        # Sending synthesised images to WandB.
-        if cfg.wandb.enable and ctx.periodically(cfg.wandb.img_freq):
-            with PerfMeasurer('train.wandb.img'):
-                assert wandb_run is not None
-                img_to_wandb(wandb_run, model, cfg, ctx, device)
-        # Saving checkpoints.
-        if ctx.periodically(cfg.training.checkpoint_freq):
-            with PerfMeasurer('train.checkpoint'):
-                cp = wd / str(ctx.iteration).zfill(6)
-                workdir.save_checkpoint(cp, model, optim, cfg, ctx)
-                make_symlink(wd / workdir.LATEST_CP_SL, cp)
-                logger.info(f'Saved checkpoint to: {rel_path(cp)}')
+
+    def _save(cp: Optional[Path] = None) -> None:
+        '''Saves the model etc. to a checkpoint. Extracted into a function to
+        avoid code duplication.'''
+        cp = cp or wd / str(ctx.iteration).zfill(6)
+        workdir.save_checkpoint(cp, model, optim, cfg, ctx)
+        make_symlink(wd / workdir.LATEST_CP_SL, cp)
+        logger.info(f'Saved run to: {rel_path(cp)}')
+
+    try:
+        for batch in batches:
+            model.train().to(device)
+            with PerfMeasurer('train.prep'):
+                # (1) Prepare the data.
+                batch = batch.to(device)
+                batch_size = batch.size(0)
+                # Pick a random t for each sample in the batch
+                t = torch.randint(cfg.diffusion.T, size=(batch_size,),
+                                  device=device)
+                alpha_cumprods = alpha_cumprod_sched[t].reshape(-1, 1, 1, 1)
+                # Add noise to the target..
+                noise = torch.randn_like(batch)
+                inputs = (alpha_cumprods.sqrt() * batch
+                          + (1 - alpha_cumprods).sqrt() * noise)
+            with PerfMeasurer('train.model'):
+                # (2) Pass the inputs to the model and iterate for
+                # `cfg.training.steps` steps.
+                model.zero_grad()
+                estimate = model(inputs, t)
+            with PerfMeasurer('train.grad'):
+                loss = F.mse_loss(estimate, noise)
+                loss.backward()  # type: ignore
+            with PerfMeasurer('train.optim'):
+                optim.step()
+            if ctx.periodically(cfg.training.metrics_freq):
+                with PerfMeasurer('train.metrics'):
+                    with torch.no_grad():
+                        # (3) Update the EMA of the loss and do other
+                        # housekeeping.
+                        abs_loss = float(loss.detach().mean().sqrt().item())
+                    ctx.loss_ema = ema(abs_loss, ctx.loss_ema)
+            # Advance the iteration counter.
+            ctx.iteration += 1
+            # Logging to stdout.
+            if ctx.periodically(cfg.training.log_freq):
+                logger.info(f'{ctx.iteration} | {ctx.loss_ema:5.7}')
+            # Saving checkpoints.
+            if ctx.periodically(cfg.training.checkpoint_freq):
+                # Create a new checkpoint
+                with PerfMeasurer('train.checkpoint'):
+                    _save()
+            if ctx.periodically(cfg.training.persist_freq):
+                # Overwrite the 'current' checkpoint
+                with PerfMeasurer('train.persist'):
+                    _save(wd / 'current')
+            # Logging to WandB.
+            if cfg.wandb.enable and ctx.periodically(cfg.wandb.log_freq):
+                with PerfMeasurer('train.wandb.log'):
+                    assert wandb_run is not None
+                    log_to_wandb(wandb_run, cfg, ctx)
+            # Sending synthesised images to WandB.
+            if cfg.wandb.enable and ctx.periodically(cfg.wandb.img_freq):
+                with PerfMeasurer('train.wandb.img'):
+                    assert wandb_run is not None
+                    img_to_wandb(wandb_run, model, cfg, ctx, device)
+    except KeyboardInterrupt:
+        logger.info(f'Training manually ended at iteration {ctx.iteration}')
+    finally:
+        _save()
 
 
 def load_wandb_run(ctx: TrainingContext, cfg: AttrDict, model: Model
@@ -138,7 +156,7 @@ def log_to_wandb(run: WandbRun,
         'Batch Size': cfg.training.batch_size,
         **get_perf_totals(prefix='perf.')
     }
-    run.log(log_dict, step=ctx.iteration)
+    run.log(log_dict, step=ctx.iteration, commit=True)
 
 
 def img_to_wandb(run: WandbRun,
@@ -146,10 +164,11 @@ def img_to_wandb(run: WandbRun,
                  cfg: AttrDict,
                  ctx: TrainingContext,
                  device: torch.device) -> None:
-    imgs = sample(model, cfg, 8, device=device)
+    imgs = sample(model, cfg, cfg.wandb.img_n, device=device,
+                  show_bar=cfg.wandb.img_show_bar)
     imgs_np = imgs.cpu().detach().numpy()
     imgs_np = imgs_np.transpose((0, 2, 3, 1))
     log_dict = {
         'Imgs': [wandb.Image(gen_img) for gen_img in imgs_np],
     }
-    run.log(log_dict, step=ctx.iteration)
+    run.log(log_dict, step=ctx.iteration, commit=True)

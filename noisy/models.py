@@ -128,22 +128,22 @@ class Model(nn.Module):
         gain = 1.
         tsc = self.cfg.arch.timestep_channels
         self.main = nn.Sequential(
-            # 64
+            # 8
             self.block(self.cfg.img.channels + tsc, c(2), gain=gain),
             self.downsample(c(), c()),
             self.nonlin(),
-            # 32
+            # 4
             Residual(
                 self.block(c(), c(4), gain=gain),
                 self.downsample(c(), c()),
                 self.nonlin(),
-                # 16
+                # 2
                 Residual(
                     self.block(c(), c(8), gain=gain),
                     AttentionBlock(c()),
                     self.downsample(c(), c()),
                     self.nonlin(),
-                    # 8
+                    # 1
                     Residual(
                         self.block(c(), c(16), gain=gain),
                         self.block(c(), c(), gain=gain),
@@ -151,20 +151,20 @@ class Model(nn.Module):
                         nn.Conv2d(c(), c(8), 1, 1, 0),
                     ),
                     self.upsample(c()),
-                    # 16
+                    # 2
                     self.nonlin(),
                     self.block(c(), c(), gain=gain),
                     AttentionBlock(c()),
                     nn.Conv2d(c(), c(4), 1, 1, 0),
                 ),
                 self.upsample(c()),
-                # 32
+                # 4
                 self.nonlin(),
                 self.block(c(), c(2), gain=gain),
                 nn.Conv2d(c(), c(), 1, 1, 0),
             ),
             self.upsample(c()),
-            # 64
+            # 8
             self.nonlin(),
             self.block(c(), c(), gain=gain),
             nn.Conv2d(c(), self.cfg.img.channels, 1, 1, 0),

@@ -101,7 +101,7 @@ def show(img: Tensor, *, clip: bool = True, out: Optional[Path] = None
 
 
 def show_grid(imgs: Tensor, *, clip: bool = True, out: Optional[Path] = None,
-             figsize: Tuple[int, int] = (12, 12)) -> None:
+              figsize: Tuple[int, int] = (12, 12)) -> None:
     '''Plots the given images in a grid.'''
     imgs = imgs.detach().cpu()
     if clip:
