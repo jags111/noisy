@@ -95,12 +95,13 @@ def train(workdir: Optional[Path], checkpoint: Optional[Path],
     if workdir is None:
         workdir = checkpoint.parent
     device_ = _ensure_device(device)
-    cfg, model, optim, ctx = noisy.workdir.load_checkpoint(checkpoint, device_)
+    cfg, model, optim, ctx, ema = noisy.workdir.load_checkpoint(checkpoint,
+                                                                device_)
     if no_wandb:
         cfg.wandb.enable = False
     logger.info(f'Loaded run from: {checkpoint}')
     ds = noisy.dataset.ImgDataset(cfg)
-    noisy.training.train(cfg, model, optim, ds, ctx, workdir, device_)
+    noisy.training.train(cfg, model, optim, ema, ds, ctx, workdir, device_)
 
 
 @cli.command('sample')
@@ -113,15 +114,20 @@ def train(workdir: Optional[Path], checkpoint: Optional[Path],
 @click.option('--out', '-o', type=Path, default=None,
               help='File to save the samples image to. If None, the image will'
               ' be show.')
+@click.option('--no-ema', is_flag=True, default=False,
+              help='Sample from the original model, not the EMA.')
 def sample(number: int, checkpoint: Optional[Path], device: Optional[str],
-           out: Optional[Path]) -> None:
+           out: Optional[Path], no_ema: bool) -> None:
     '''Load the model from the specified checkpoint and sample from it. If no
     checkpoint is specified, default to the most recent checkpoint.'''
     checkpoint = _ensure_cp(checkpoint)
     device_ = _ensure_device(device)
     logger.info(f'Loading model from {checkpoint}...')
     cfg = noisy.workdir.load_cfg(checkpoint)
-    model = noisy.workdir.load_model(checkpoint, cfg)
+    if no_ema:
+        model = noisy.workdir.load_model(checkpoint, cfg)
+    else:
+        model = noisy.workdir.load_ema(checkpoint, cfg)
     img = noisy.diffusion.sample(model, cfg, number, device=device_,
                                  show_bar=True)
     img_norm = img * 0.5 + 0.5

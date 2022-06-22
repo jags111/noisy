@@ -4,12 +4,16 @@ from __future__ import annotations
 from typing import Optional, Tuple, Union
 from dataclasses import dataclass
 import math
+from logging import getLogger
 import torch
 from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
 from .utils import AttrDict
+
+
+logger = getLogger('noisy.models')
 
 
 @dataclass
@@ -205,3 +209,30 @@ class Model(nn.Module):
                 gain=gain,
             ),
         )
+
+
+class EMA(Model):
+    '''Exponentiall Moving Average of the model. Leads to better results during
+    inference.'''
+
+    def __init__(self, cfg: AttrDict) -> None:
+        super().__init__(cfg)
+        self.alpha = cfg.training.ema_alpha
+
+    @classmethod
+    def using(cls, original: Model) -> EMA:
+        self = cls(original.cfg)
+        for ema_p, other_p in zip(self.parameters(), original.parameters()):
+            ema_p.data = other_p.data.clone().detach().to(ema_p.device)
+        return self
+
+    def update(self, other: Model, steps: int) -> None:
+        with torch.no_grad():
+            a = self.alpha ** steps
+            for ema_p, other_p in zip(self.parameters(), other.parameters()):
+                other_data = other_p.data.clone().detach().to(ema_p.device)
+                ema_p.data = a * ema_p + (1 - a) * other_data
+
+    def forward(self, x: Tensor, t: Union[int, Tensor]) -> Tensor:
+        with torch.no_grad():
+            return super().forward(x, t)

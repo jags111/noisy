@@ -12,8 +12,8 @@ import torch.nn.functional as F
 import wandb
 from wandb.sdk.wandb_run import Run as WandbRun
 
-from .models import Model
-from .utils import AttrDict, rel_path, make_symlink, random_name, ema
+from .models import Model, EMA
+from .utils import AttrDict, rel_path, make_symlink, random_name, ema as fema
 from . import workdir
 from .perf import PerfMeasurer, get_totals as get_perf_totals
 from .diffusion import get_beta_sched, get_alpha_cumprod_sched, sample
@@ -47,8 +47,9 @@ def forward_diffuse(img: Tensor, t: Union[int, Tensor],
     return img
 
 
-def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
-          ctx: TrainingContext, wd: Path, device: torch.device) -> None:
+def train(cfg: AttrDict, model: Model, optim: AdamW, ema: EMA,
+          ds: Dataset[Tensor], ctx: TrainingContext, wd: Path,
+          device: torch.device) -> None:
     dl = DataLoader(ds, cfg.training.batch_size, shuffle=True, pin_memory=True)
     batches = (batch for _ in count() for batch in dl)
     if cfg.wandb.enable:
@@ -62,7 +63,7 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
         '''Saves the model etc. to a checkpoint. Extracted into a function to
         avoid code duplication.'''
         cp = cp or wd / str(ctx.iteration).zfill(6)
-        workdir.save_checkpoint(cp, model, optim, cfg, ctx)
+        workdir.save_checkpoint(cp, model, optim, cfg, ctx, ema)
         make_symlink(wd / workdir.LATEST_CP_SL, cp)
         logger.info(f'Saved run to: {rel_path(cp)}')
 
@@ -97,9 +98,13 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
                         # (3) Update the EMA of the loss and do other
                         # housekeeping.
                         abs_loss = float(loss.detach().mean().sqrt().item())
-                    ctx.loss_ema = ema(abs_loss, ctx.loss_ema)
+                    ctx.loss_ema = fema(abs_loss, ctx.loss_ema)
             # Advance the iteration counter.
             ctx.iteration += 1
+            # Update the EMA
+            if ctx.periodically(cfg.training.ema_freq):
+                with PerfMeasurer('train.ema'):
+                    ema.update(model, cfg.training.ema_freq)
             # Logging to stdout.
             if ctx.periodically(cfg.training.log_freq):
                 logger.info(f'{ctx.iteration} | {ctx.loss_ema:5.7}')
@@ -121,7 +126,7 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ds: Dataset[Tensor],
             if cfg.wandb.enable and ctx.periodically(cfg.wandb.img_freq):
                 with PerfMeasurer('train.wandb.img'):
                     assert wandb_run is not None
-                    img_to_wandb(wandb_run, model, cfg, ctx, device)
+                    img_to_wandb(wandb_run, ema, cfg, ctx, device)
     except KeyboardInterrupt:
         logger.info(f'Training manually ended at iteration {ctx.iteration}')
     finally:

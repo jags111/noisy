@@ -17,6 +17,8 @@ training:
   checkpoint_freq: 4000
   persist_freq: 500
   metrics_freq: 10
+  ema_alpha: 0.995
+  ema_freq: 20
 
 wandb:
   enable: true

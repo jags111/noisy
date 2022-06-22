@@ -10,7 +10,7 @@ import torch
 from torch.optim import AdamW
 
 from .utils import AttrDict
-from .models import Model
+from .models import Model, EMA
 from .training import TrainingContext
 from .perf import get_perf_data, set_perf_data, PerfEntry
 
@@ -33,31 +33,34 @@ def init(wd: Path, cfg: Union[AttrDict, Path], force: bool = False) -> Path:
     # Create the initial checkpoint
     cp = wd / 'initial/'
     model = Model(cfg)
+    ema = EMA.using(model)
     optim = AdamW(model.parameters(), **cfg.optim)
     ctx = TrainingContext()
-    save_checkpoint(cp, model, optim, cfg, ctx)
+    save_checkpoint(cp, model, optim, cfg, ctx, ema)
     return cp
 
 
 def save_checkpoint(cp: Path, model: Model, optim: AdamW, cfg: AttrDict,
-                    ctx: TrainingContext) -> None:
+                    ctx: TrainingContext, ema: EMA) -> None:
     cp.mkdir(exist_ok=True)
     save_cfg(cp, cfg)
     save_model(cp, model)
     save_optim(cp, optim)
     save_ctx(cp, ctx)
+    save_ema(cp, ema)
     save_perf_data(cp)
 
 
 def load_checkpoint(cp: Path, device: torch.device,
-                    ) -> Tuple[AttrDict, Model, AdamW, TrainingContext]:
+                    ) -> Tuple[AttrDict, Model, AdamW, TrainingContext, EMA]:
     cfg = load_cfg(cp)
     model = load_model(cp, cfg)
     model.to(device)
     optim = load_opim(cp, cfg, model)
     ctx = load_ctx(cp)
+    ema = load_ema(cp, cfg)
     load_perf_data(cp)
-    return cfg, model, optim, ctx
+    return cfg, model, optim, ctx, ema
 
 
 def save_cfg(cp: Path, cfg: AttrDict) -> None:
@@ -80,6 +83,24 @@ def load_model(cp: Path, cfg: Optional[AttrDict] = None) -> Model:
     model = Model(cfg)
     model.load_state_dict(state)
     return model
+
+
+def save_ema(cp: Path, ema: EMA) -> None:
+    state = ema.state_dict()
+    torch.save(state, cp / 'ema.state.pt')
+
+
+def load_ema(cp: Path, cfg: Optional[AttrDict] = None) -> EMA:
+    if cfg is None:
+        cfg = load_cfg(cp)
+    path = cp / 'ema.state.pt'
+    if not path.exists():
+        # For backwards compatability
+        return EMA.using(load_model(cp, cfg))
+    state = torch.load(path)  # type: ignore
+    ema = EMA(cfg)
+    ema.load_state_dict(state)
+    return ema
 
 
 def save_optim(cp: Path, opt: AdamW) -> None:
