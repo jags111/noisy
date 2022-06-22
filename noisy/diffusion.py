@@ -2,6 +2,7 @@ from typing import Union, Iterator, Optional
 from logging import getLogger
 import torch
 from torch import Tensor
+from tqdm import tqdm
 
 from .utils import AttrDict
 from .models import Model
@@ -49,22 +50,28 @@ def get_alpha_cumprod_sched(betas: Tensor) -> Tensor:
 
 
 def sample(model: Model, cfg: AttrDict, img_or_n: Union[Tensor, int] = 1,
-           device: Optional[Union[str, torch.device]] = None) -> Tensor:
+           device: Optional[Union[str, torch.device]] = None,
+           show_bar: bool = False) -> Tensor:
     device = _resolve_device(device)
     img = _resolve_img(img_or_n, cfg, device)
     *_, img = sample_iter(model, img, get_beta_sched(cfg), cfg.diffusion.T,
-                          device)
+                          device, show_bar)
     return img
 
 
 def sample_iter(model: Model, x: Tensor, beta_sched: Tensor, T: int,
-                device: torch.device) -> Iterator[Tensor]:
+                device: torch.device, show_bar: bool = False
+                ) -> Iterator[Tensor]:
     model.eval().to(device)
     with torch.no_grad():
         alpha_cumprods = get_alpha_cumprod_sched(beta_sched)
         alphas = get_alpha_sched(beta_sched)
-        it = reversed(list(zip(alphas, alpha_cumprods, range(T))))
-        for a, ac, t in it:
+        it = reversed(range(T))
+        if show_bar:
+            it = tqdm(it, total=T)
+        for t in it:
+            a = alphas[t]
+            ac = alpha_cumprods[t]
             z = torch.randn_like(x) if t > 0 else torch.zeros_like(x)
             model_fac = (1 - a) / ((1 - ac).sqrt())
             noise_fac = (1 - a).sqrt()

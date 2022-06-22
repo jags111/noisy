@@ -17,7 +17,7 @@ logger = getLogger('noisy.utils')
 
 class AttrDict(Dict[str, Any]):
     '''A dictionary with syntax similar to that of JavaScript objects. I.e.
-    instead of d["my_key"], we can simply say d.my_key.'''
+    instead of d['my_key'], we can simply say d.my_key.'''
 
     def __getattr__(self, key: str) -> Any:
         try:
@@ -78,8 +78,9 @@ def rel_path(path: Path, root: Optional[Path] = None) -> Path:
     return Path(os.path.relpath(path, root))
 
 
-def show(img: Tensor, show: bool = True, clip: bool = True) -> None:
-    """ Plots the given image. """
+def show(img: Tensor, *, clip: bool = True, out: Optional[Path] = None
+         ) -> None:
+    '''Plots the given image.'''
     if img.dim() == 4 and img.size(0) != 1:
         return show_grid(img)
     if clip:
@@ -93,24 +94,28 @@ def show(img: Tensor, show: bool = True, clip: bool = True) -> None:
     plt.imshow(img)
     plt.axis('off')
     plt.tight_layout()
-    if show:
+    if out is None:
         plt.show()
+    else:
+        plt.savefig(out)
 
 
-def show_grid(imgs: Tensor, figsize: Tuple[int, int] = (12, 12),
-              show: bool = True, clip: bool = True) -> None:
-    """ Plots the given images in a grid. """
+def show_grid(imgs: Tensor, *, clip: bool = True, out: Optional[Path] = None,
+             figsize: Tuple[int, int] = (12, 12)) -> None:
+    '''Plots the given images in a grid.'''
     imgs = imgs.detach().cpu()
     if clip:
         imgs = torch.clip(imgs, 0., 1.)
-    grid = vutils.make_grid(imgs, padding=2, value_range=(0, 1))
+    grid = vutils.make_grid(imgs, padding=1, value_range=(0, 1))
     plt.figure(figsize=figsize)
     plt.tight_layout()
-    plt.axis("off")
+    plt.axis('off')
     plt.imshow(np.transpose(grid, (1, 2, 0)))
     plt.tight_layout()
-    if show:
+    if out is None:
         plt.show()
+    else:
+        plt.savefig(out)
 
 
 def random_name(prefix: str = 'run') -> str:

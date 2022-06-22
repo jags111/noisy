@@ -32,7 +32,7 @@ img:
   channels: 3
 
 data:
-  path: ./data/birds/
+  path: ../data/birds/
   extensions:
     - .jpeg
     - .jpg
