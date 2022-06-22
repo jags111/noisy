@@ -140,14 +140,22 @@ def info(checkpoint: Optional[Path]) -> None:
     cp_contents = (checkpoint / f for f in os.listdir(checkpoint))
     cp_size = sum(os.path.getsize(f) for f in cp_contents if os.path.isfile(f))
     ctx = noisy.workdir.load_ctx(checkpoint)
+    ds = noisy.dataset.ImgDataset(cfg, lazy=True)
+    ds_cache = ds.get_cache_path()
+    ds_files = ds.get_files()
     # We do not log the information, as this would print it to stderr instead
     # of stdout.
     print(f'Checkpoint: {noisy.utils.rel_path(checkpoint.resolve())}')
     print(f'Iteration: {ctx.iteration}')
     print(f'Wandb ID: {ctx.wandb_run_id}')
     print(f'Loss EMA: {ctx.loss_ema}')
-    print(f'Parameters: {total_params}')
+    print(f'Parameters: {round(total_params / 1e6, 2)} M')
     print(f'Checkpoint size: {round(cp_size / 1e6, 2)} MB')
+    print(f'Dataset path: {cfg.data.path}')
+    print(f'Dataset cache: {ds_cache if ds_cache.exists() else "(not found)"}')
+    # Do not use len(ds) here as that would load the cache file, potentially
+    # creating it.
+    print(f'Images found: {len(ds_files)}')
 
 
 @cli.command('dev')

@@ -2,12 +2,12 @@
 into a torch Tensor for faster access. This obviously assumes that the dataset
 fits into memory. To save space, images are resized to the needed resolution
 and stored using 8-bit unsigned integers for their RGB values.'''
+from typing import Optional, List
 import glob
 from pathlib import Path
 from itertools import chain
 from logging import getLogger
 from dataclasses import dataclass, field
-from typing import Optional
 from tqdm import tqdm  # type: ignore
 import torchvision.io as io  # type: ignore
 from torchvision import transforms
@@ -24,9 +24,10 @@ logger = getLogger('noisy.dataset')
 @dataclass
 class ImgDataset(Dataset[Tensor]):
     cfg: AttrDict
-    cache: Tensor = field(init=False)
+    lazy: bool = False
     dynamic_transform: transforms.Compose = field(init=False)
     static_transform: transforms.Compose = field(init=False)
+    _cache: Optional[Tensor] = None
 
     def __post_init__(self) -> None:
         # Transforms applied *after* the image is loaded from the cache
@@ -42,35 +43,55 @@ class ImgDataset(Dataset[Tensor]):
         if self.cfg.img.channels == 1:
             static_transform_steps.append(transforms.transforms.Grayscale())
         self.static_transform = transforms.Compose(static_transform_steps)
-        self.cache = self._get_cache()
+        if not self.lazy:
+            self.cache = self._get_cache()
 
     def _get_cache(self) -> Tensor:
+        '''Collects all files inside the data directory and loads them all into
+        a torch Tensor. To speed up future invocations, this Tensor is saved in
+        the root of the dataset directory.'''
+        # (1) Check if a cache file already exists:
+        cache_file = self.get_cache_path()
         c: int = self.cfg.img.channels
         s: int = self.cfg.img.size
-        path = Path(self.cfg.data.path)
-        cache_file = path / f'.{c}x{s}x{s}.cache'
         if cache_file.exists():
             logger.info(f'Loading cache file: {cache_file}')
             cache = torch.load(cache_file)  # type: ignore
             assert isinstance(cache, Tensor)
-            assert cache.size(1) == c
-            assert cache.size(2) == cache.size(3) == s
             return cache
+        # (2) If no cache file was found, create one:
+        files = self.get_files()
         logger.info(f'Populating cache file: {cache_file}')
+        mb = round((len(files) * c * s * s) / 1e6, 2)
+        logger.info(f'Estimated cache size: {mb} MB')
+        # Load all images into a list
+        imgs_it = (self._load_img(f) for f in tqdm(files))
+        imgs = [img.unsqueeze(0) for img in imgs_it if img is not None]
+        # Combine all images into a Tensor
+        cache = torch.cat(imgs)
+        assert isinstance(cache, Tensor)
+        # Save the Tensor to the cache file
+        torch.save(cache, cache_file)
+        logger.info('Cache saved.')
+        return cache
+
+    def get_files(self) -> List[Path]:
+        # Collect all image files
         exts = self.cfg.data.extensions
+        path = Path(self.cfg.data.path)
         patterns = (path / f'**/*{ext}' for ext in exts)
         file_its = (glob.iglob(str(patt), recursive=True)
                     for patt in patterns)
         files = list(chain(*file_its))
-        mb = round((len(files) * c * s * s) / 1e6, 2)
-        logger.info(f'Estimated cache size: {mb} MB')
-        imgs_it = (self._load_img(f) for f in tqdm(files))
-        imgs = [img.unsqueeze(0) for img in imgs_it if img is not None]
-        cache = torch.cat(imgs)
-        assert isinstance(cache, Tensor)
-        torch.save(cache, cache_file)
-        logger.info('Cache saved.')
-        return cache
+        paths = [Path(f) for f in files]
+        return paths
+
+    def get_cache_path(self) -> Path:
+        c: int = self.cfg.img.channels
+        s: int = self.cfg.img.size
+        path = Path(self.cfg.data.path)
+        cache_file = path / f'.{c}x{s}x{s}.cache'
+        return cache_file
 
     def _load_img(self, path: str) -> Optional[Tensor]:
         try:
@@ -85,6 +106,21 @@ class ImgDataset(Dataset[Tensor]):
                            f' {img.size(0)} whilst loading {path}')
             return None
         return img  # type: ignore
+
+    @property
+    def cache(self) -> Tensor:
+        if self._cache is None:
+            self.cache = self._get_cache()
+        assert self._cache is not None
+        return self._cache
+
+    @cache.setter
+    def cache(self, cache: Tensor) -> None:
+        c: int = self.cfg.img.channels
+        s: int = self.cfg.img.size
+        assert cache.size(1) == c
+        assert cache.size(2) == cache.size(3) == s
+        self._cache == cache
 
     def __getitem__(self, index: int) -> Tensor:
         return self.dynamic_transform(self.cache[index])  # type: ignore
