@@ -156,7 +156,7 @@ def log_to_wandb(run: WandbRun,
         'Batch Size': cfg.training.batch_size,
         **get_perf_totals(prefix='perf.')
     }
-    run.log(log_dict, step=ctx.iteration, commit=True)
+    run.log(log_dict, step=ctx.iteration)
 
 
 def img_to_wandb(run: WandbRun,
@@ -171,4 +171,4 @@ def img_to_wandb(run: WandbRun,
     log_dict = {
         'Imgs': [wandb.Image(gen_img) for gen_img in imgs_np],
     }
-    run.log(log_dict, step=ctx.iteration, commit=True)
+    run.log(log_dict, step=ctx.iteration)
