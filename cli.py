@@ -200,8 +200,8 @@ def slurm(checkpoint: Optional[Path], script: Path, logfile: Path, time: str,
     ]
     if email is not None:
         cmd.extend([
-            '--mail-type', 'BEGIN,END,FAIL',
-            '--mail-user', email,
+            '--mail-type=BEGIN,END,FAIL',
+            f'--mail-user={email}',
         ])
     logger.info(f'Running command: {" ".join(cmd)}')
     subprocess.run(cmd)
