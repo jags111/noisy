@@ -185,7 +185,6 @@ def slurm(checkpoint: Optional[Path], template: Path, logfile: Path, time: str,
         raise FileNotFoundError(f'Script does not exist: {template}')
     if not checkpoint.exists():
         raise FileNotFoundError(f'Checkpoint does not exist: {checkpoint}')
-    checkpoint = noisy.utils.rel_path(checkpoint.resolve())
     if logfile is None:
         logfile = checkpoint.parent / 'viking.log'
     logfile = noisy.utils.rel_path(logfile.resolve())
