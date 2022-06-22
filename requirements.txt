@@ -12,3 +12,4 @@ tqdm
 click
 pyyaml
 wandb
+jinja2

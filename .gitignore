@@ -6,3 +6,4 @@ data
 wandb/
 viking-logs/
 .ipynb_checkpoints/
+.requirements.freeze.txt

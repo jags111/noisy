@@ -12,11 +12,11 @@ the --help flag to any command.
 from typing import Optional, Union
 import logging
 from pathlib import Path
-import subprocess
 import click
 import torch
 import math
 import os
+import jinja2
 
 import noisy
 
@@ -169,42 +169,43 @@ def dev(task: str) -> None:
 @cli.command('slurm')
 @click.option('--checkpoint', '-c', type=Path, default=None,
               help='Path to the checkpoint to be loaded.')
-@click.option('--script', type=Path, default=Path('viking-script.sh'))
+@click.option('--template', type=Path, default=Path('viking-script.sh.jinja'))
 @click.option('--logfile', type=Path, default=None)
 @click.option('--time', type=str, required=True)
 @click.option('--email', type=str, default=None)
-def slurm(checkpoint: Optional[Path], script: Path, logfile: Path, time: str,
-          email: Optional[str]) -> None:
+@click.option('--out', type=Path, default=None,
+              help='The path to which the generated slurm script should be '
+              'written to')
+def slurm(checkpoint: Optional[Path], template: Path, logfile: Path, time: str,
+          email: Optional[str], out: Optional[Path]) -> None:
     '''Submits a batch job to Slurm. For compute clusters.'''
+    # Checks and preparations
     checkpoint = _ensure_cp(checkpoint)
-    if not script.exists():
-        raise FileNotFoundError(f'Script does not exist: {script}')
+    if not template.exists():
+        raise FileNotFoundError(f'Script does not exist: {template}')
     if not checkpoint.exists():
         raise FileNotFoundError(f'Checkpoint does not exist: {checkpoint}')
+    checkpoint = noisy.utils.rel_path(checkpoint.resolve())
     if logfile is None:
         logfile = checkpoint.parent / 'viking.log'
+    logfile = noisy.utils.rel_path(logfile.resolve())
+    if out is None:
+        out = checkpoint.parent / 'viking-script.sh'
     logfile.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        'sbatch',
-        str(script),
-        '--ntasks=1',
-        '--cpus-per-task=4',
-        '--mem=10gb',
-        f'--output={logfile}',
-        '--partition=gpu',
-        '--gres=gpu:1',
-        f'--time={time}',
-        '--export=' + ','.join(['ALL',
-                                f'NOISY_CHECKPOINT={checkpoint}',
-                                f'NOISY_DIR={os.getcwd()}']),
-    ]
-    if email is not None:
-        cmd.extend([
-            '--mail-type=BEGIN,END,FAIL',
-            f'--mail-user={email}',
-        ])
-    logger.info(f'Running command: {" ".join(cmd)}')
-    subprocess.run(cmd)
+    # Prepare the script
+    loader = jinja2.FileSystemLoader(searchpath='./')
+    env = jinja2.Environment(loader=loader)
+    templ = env.get_template(str(template))
+    script = templ.render(
+        email=email,
+        logfile=logfile,
+        time=time,
+        noisy_dir=os.getcwd(),
+        checkpoint=checkpoint
+    )
+    with open(out, 'w') as fh:
+        fh.write(script)
+    logger.info(f'Generated Slurm script written to {out}')
 
 
 def _ensure_cp(checkpoint: Optional[Path]) -> Path:
