@@ -13,10 +13,10 @@ from typing import Optional, Union
 import logging
 from pathlib import Path
 import click
-import torch
 import math
 import os
 import jinja2
+import torch
 
 import noisy
 

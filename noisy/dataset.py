@@ -2,7 +2,7 @@
 into a torch Tensor for faster access. This obviously assumes that the dataset
 fits into memory. To save space, images are resized to the needed resolution
 and stored using 8-bit unsigned integers for their RGB values.'''
-from typing import Optional, List
+from typing import Optional, List, Union
 import glob
 from pathlib import Path
 from itertools import chain
@@ -65,7 +65,7 @@ class ImgDataset(Dataset[Tensor]):
         mb = round((len(files) * c * s * s) / 1e6, 2)
         logger.info(f'Estimated cache size: {mb} MB')
         # Load all images into a list
-        imgs_it = (self._load_img(f) for f in tqdm(files))
+        imgs_it = (self.load_img(f) for f in tqdm(files))
         imgs = [img.unsqueeze(0) for img in imgs_it if img is not None]
         # Combine all images into a Tensor
         cache = torch.cat(imgs)
@@ -93,7 +93,9 @@ class ImgDataset(Dataset[Tensor]):
         cache_file = path / f'.{c}x{s}x{s}.cache'
         return cache_file
 
-    def _load_img(self, path: str) -> Optional[Tensor]:
+    def load_img(self, path: Union[str, Path]) -> Optional[Tensor]:
+        if isinstance(path, Path):
+            path = str(path)
         try:
             img = io.read_image(path)
         except RuntimeError as e:
@@ -120,6 +122,14 @@ class ImgDataset(Dataset[Tensor]):
         assert cache.size(1) == c
         assert cache.size(2) == cache.size(3) == s
         self._cache = cache
+
+    def load_and_proecess_img(self, file: Path, device: torch.device
+                              ) -> Tensor:
+        img = self.load_img(file)
+        if img is None:
+            raise ValueError(f'Could not read file: {file}')
+        img = self.dynamic_transform(img)
+        return img.unsqueeze(0).to(device)  # type: ignore
 
     def __getitem__(self, index: int) -> Tensor:
         return self.dynamic_transform(self.cache[index])  # type: ignore
