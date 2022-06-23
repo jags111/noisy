@@ -186,7 +186,7 @@ def slurm(checkpoint: Optional[Path], template: Path, logfile: Path, time: str,
           email: Optional[str], out: Optional[Path]) -> None:
     '''Submits a batch job to Slurm. For compute clusters.'''
     # Checks and preparations
-    checkpoint = _ensure_cp(checkpoint)
+    checkpoint = _ensure_cp(checkpoint, rel=False)
     if not template.exists():
         raise FileNotFoundError(f'Script does not exist: {template}')
     if not checkpoint.exists():
@@ -213,9 +213,10 @@ def slurm(checkpoint: Optional[Path], template: Path, logfile: Path, time: str,
     logger.info(f'Generated Slurm script written to {out}')
 
 
-def _ensure_cp(checkpoint: Optional[Path]) -> Path:
+def _ensure_cp(checkpoint: Optional[Path], rel: bool= True) -> Path:
     if checkpoint is None:
         checkpoint = noisy.workdir.LATEST_PROJ_SL / noisy.workdir.LATEST_CP_SL
+    if rel:
         checkpoint = noisy.utils.rel_path(checkpoint.resolve())
     return checkpoint
 
