@@ -137,6 +137,43 @@ def sample(number: int, checkpoint: Optional[Path], device: Optional[str],
     noisy.utils.show(img_norm, clip=True, out=out)
 
 
+@cli.command('sample-blend')
+@click.option('--number', '-n', type=_int, default=1,
+              help='Number of images to sample')
+@click.option('--blends', '-b', type=_int, default=32,
+              help='Number of intermediate images')
+@click.option('--checkpoint', '-c', type=Path, default=None,
+              help='Path to the checkpoint to be loaded.')
+@click.option('--device', '-d', type=click.Choice(('cpu', 'cuda')),
+              default=None)
+@click.option('--out', '-o', type=Path, default=None,
+              help='File to save the samples image to. If None, the image will'
+              ' be show.')
+@click.option('--no-ema', is_flag=True, default=False,
+              help='Sample from the original model, not the EMA.')
+@click.option('--no-bar', is_flag=True, default=False)
+def sample_blend(number: int, blends: int, checkpoint: Optional[Path],
+                 device: Optional[str], out: Optional[Path], no_ema: bool,
+                 no_bar: bool) -> None:
+    '''Load the model from the specified checkpoint and sample from it, keeping
+    track of intermediate results. If no checkpoint is specified, default to
+    the most recent checkpoint.'''
+    checkpoint = _ensure_cp(checkpoint)
+    device_ = _ensure_device(device)
+    logger.info(f'Loading model from {checkpoint}...')
+    cfg = noisy.workdir.load_cfg(checkpoint)
+    if no_ema:
+        model = noisy.workdir.load_model(checkpoint, cfg)
+    else:
+        model = noisy.workdir.load_ema(checkpoint, cfg)
+    img_it = noisy.diffusion.sample_iter(model, cfg, blends, number,
+                                         device=device_, show_bar=not no_bar)
+    img = torch.cat(list(img_it), dim=0)
+    img_norm = img * 0.5 + 0.5
+    n_rows = blends if number > 1 else 8
+    noisy.utils.show_grid(img_norm, clip=True, out=out, n_rows=n_rows)
+
+
 @cli.command('info')
 @click.option('--checkpoint', '-c', type=Path, default=None,
               help='Path to the checkpoint to be loaded.')

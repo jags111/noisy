@@ -101,12 +101,12 @@ def show(img: Tensor, *, clip: bool = True, out: Optional[Path] = None
 
 
 def show_grid(imgs: Tensor, *, clip: bool = True, out: Optional[Path] = None,
-              figsize: Tuple[int, int] = (12, 12)) -> None:
+              figsize: Tuple[int, int] = (12, 12), n_rows: int = 8) -> None:
     '''Plots the given images in a grid.'''
     imgs = imgs.detach().cpu()
     if clip:
         imgs = torch.clip(imgs, 0., 1.)
-    grid = vutils.make_grid(imgs, padding=1, value_range=(0, 1))
+    grid = vutils.make_grid(imgs, padding=1, value_range=(0, 1), n_rows=n_rows)
     plt.figure(figsize=figsize)
     plt.tight_layout()
     plt.axis('off')
