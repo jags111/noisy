@@ -213,7 +213,7 @@ def slurm(checkpoint: Optional[Path], template: Path, logfile: Path, time: str,
     logger.info(f'Generated Slurm script written to {out}')
 
 
-def _ensure_cp(checkpoint: Optional[Path], rel: bool= True) -> Path:
+def _ensure_cp(checkpoint: Optional[Path], rel: bool = True) -> Path:
     if checkpoint is None:
         checkpoint = noisy.workdir.LATEST_PROJ_SL / noisy.workdir.LATEST_CP_SL
     if rel:

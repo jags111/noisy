@@ -10,7 +10,7 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import AttrDict
+from noisy.utils import AttrDict
 
 
 logger = getLogger('noisy.models')
