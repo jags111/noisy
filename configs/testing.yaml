@@ -1,11 +1,11 @@
 diffusion:
-  T: 1000
+  T: 3
   beta_start: 0.0001
   beta_stop: 0.01
 
 arch:
-  model: Maria
-  width_mult: 32
+  model: Lara
+  width_mult: 4
   timestep_channels: 8
   diffusion_method: linear
 
@@ -14,7 +14,7 @@ optim:
   weight_decay: 0.0
 
 training:
-  batch_size: 16
+  batch_size: 2
   log_freq: 10
   checkpoint_freq: 1000
   persist_freq: 50
@@ -23,7 +23,7 @@ training:
   ema_freq: 20
 
 wandb:
-  enable: true
+  enable: false
   log_freq: 10
   img_freq: 100
   img_n: 8

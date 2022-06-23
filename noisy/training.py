@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import wandb
 from wandb.sdk.wandb_run import Run as WandbRun
 
-from .models import Model, EMA
+from .models import Model, model_ema
 from .utils import AttrDict, rel_path, make_symlink, random_name, ema as fema
 from . import workdir
 from .perf import PerfMeasurer, get_totals as get_perf_totals
@@ -47,7 +47,7 @@ def forward_diffuse(img: Tensor, t: Union[int, Tensor],
     return img
 
 
-def train(cfg: AttrDict, model: Model, optim: AdamW, ema: EMA,
+def train(cfg: AttrDict, model: Model, optim: AdamW, ema: Model,
           ds: Dataset[Tensor], ctx: TrainingContext, wd: Path,
           device: torch.device) -> None:
     dl = DataLoader(ds, cfg.training.batch_size, shuffle=True, pin_memory=True)
@@ -104,7 +104,8 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ema: EMA,
             # Update the EMA
             if ctx.periodically(cfg.training.ema_freq):
                 with PerfMeasurer('train.ema'):
-                    ema.update(model, cfg.training.ema_freq)
+                    ema = model_ema(ema, model, cfg.training.ema_alpha,
+                                    cfg.training.ema_freq)
             # Logging to stdout.
             if ctx.periodically(cfg.training.log_freq):
                 logger.info(f'{ctx.iteration} | {ctx.loss_ema:5.7}')

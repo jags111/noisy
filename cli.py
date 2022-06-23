@@ -55,8 +55,9 @@ def cli() -> None:
               'Disables WandB.')
 @click.option('--wandb-name', '-n', type=str, default=None,
               help='Overwrites the WandB name.')
+@click.option('--no-symlink', is_flag=True)
 def init(workdir: Optional[Path], config: Optional[Path], force: bool,
-         tmp: bool, wandb_name: Optional[str]) -> None:
+         tmp: bool, wandb_name: Optional[str], no_symlink: bool) -> None:
     '''Instantiate a new, untrained model inside a working directory and create
     an initial checkpoint.'''
     if config is None:
@@ -71,9 +72,10 @@ def init(workdir: Optional[Path], config: Optional[Path], force: bool,
     if wandb_name is not None:
         cfg.wandb.name = wandb_name
     logger.info(f'Initializing new run in: {workdir}, using the configuration '
-                f'in: {config}')
+                f'in: {config} and model architecture "{cfg.arch.model}"')
     cp = noisy.workdir.init(workdir, cfg, force=force)
-    noisy.utils.make_symlink(noisy.workdir.LATEST_PROJ_SL, workdir)
+    if not no_symlink:
+        noisy.utils.make_symlink(noisy.workdir.LATEST_PROJ_SL, workdir)
     noisy.utils.make_symlink(workdir / noisy.workdir.LATEST_CP_SL, cp)
 
 
@@ -116,8 +118,9 @@ def train(workdir: Optional[Path], checkpoint: Optional[Path],
               ' be show.')
 @click.option('--no-ema', is_flag=True, default=False,
               help='Sample from the original model, not the EMA.')
+@click.option('--no-bar', is_flag=True, default=False)
 def sample(number: int, checkpoint: Optional[Path], device: Optional[str],
-           out: Optional[Path], no_ema: bool) -> None:
+           out: Optional[Path], no_ema: bool, no_bar: bool) -> None:
     '''Load the model from the specified checkpoint and sample from it. If no
     checkpoint is specified, default to the most recent checkpoint.'''
     checkpoint = _ensure_cp(checkpoint)
@@ -129,7 +132,7 @@ def sample(number: int, checkpoint: Optional[Path], device: Optional[str],
     else:
         model = noisy.workdir.load_ema(checkpoint, cfg)
     img = noisy.diffusion.sample(model, cfg, number, device=device_,
-                                 show_bar=True)
+                                 show_bar=not no_bar)
     img_norm = img * 0.5 + 0.5
     noisy.utils.show(img_norm, clip=True, out=out)
 
@@ -163,13 +166,6 @@ def info(checkpoint: Optional[Path]) -> None:
     # Do not use len(ds) here as that would load the cache file, potentially
     # creating it.
     print(f'Images found: {len(ds_files)}')
-
-
-@cli.command('dev')
-@click.option('--task', '-t', type=str)
-def dev(task: str) -> None:
-    '''For debugging and development, please ignore :)'''
-    pass
 
 
 @cli.command('slurm')
