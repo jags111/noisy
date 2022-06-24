@@ -28,6 +28,7 @@ def register_model(name: str) -> Callable[[Type[Model]], Type[Model]]:
 def get_model_class(name_or_cfg: Union[str, AttrDict]) -> Type[Model]:
     from . import lara  # noqa:  F401
     from . import maria  # noqa:  F401
+    from . import alia  # noqa:  F401
     if isinstance(name_or_cfg, AttrDict):
         name = name_or_cfg.arch.model
     else:

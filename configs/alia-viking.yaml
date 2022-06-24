@@ -4,7 +4,7 @@ diffusion:
   beta_stop: 0.01
 
 arch:
-  model: Maria
+  model: Alia
   width_mult: 64
   timestep_channels: 16
 
@@ -15,8 +15,8 @@ optim:
 training:
   batch_size: 32
   log_freq: 20
-  checkpoint_freq: 5000
-  persist_freq: 1000
+  checkpoint_freq: 10000
+  persist_freq: 5000
   metrics_freq: 10
   metrics_ema_alpha: 0.9
   ema_alpha: 0.998
@@ -31,7 +31,7 @@ wandb:
   gradient_freq: 500
   project: noisy
   group: birds
-  name: maria-viking
+  name: alia-viking
   tags: [birds, rgb, size_128x128, viking, width_64]
 
 img:

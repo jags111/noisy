@@ -98,7 +98,8 @@ def train(cfg: AttrDict, model: Model, optim: AdamW, ema: Model,
                         # (3) Update the EMA of the loss and do other
                         # housekeeping.
                         abs_loss = float(loss.detach().mean().sqrt().item())
-                    ctx.loss_ema = fema(abs_loss, ctx.loss_ema)
+                    ctx.loss_ema = fema(abs_loss, ctx.loss_ema,
+                                        cfg.training.metrics_ema_alpha)
             # Advance the iteration counter.
             ctx.iteration += 1
             # Update the EMA
