@@ -4,6 +4,17 @@ A diffusion model for image generation with an emphasis on clean and readable
 code, an easy to use CLI as well as easy monitoring during training using
 [Weights And Biases](https://wandb.ai).
 
+## Requirements
+
+All Python requirements are listed in `requirements.txt`. For training, a CUDA
+capable GPU is *strongly* recommended. However, most CLI commands take a
+`--device` argument that can be either `cpu` or `cuda`. Thus, all operations can
+also be performed on the CPU.
+
+The system was developed and tested on Ubuntu 20.04 LTS. I have not tried it on
+Windows (i.e. WSL2) or MAC, but I can not think of an obvious reason why that
+should not work.
+
 ## Usage and CLI
 
 - `./cli.py init` - Creates a new *project*, based on `/configs/default.yaml`.
@@ -89,14 +100,3 @@ noisy/
 ├── utils.py        # Utility functions and the `AttrDict`
 └── workdir.py      # Functions for dealing with workdirs and checkpoints
 ```
-
-## Requirements
-
-All Python requirements are listed in `requirements.txt`. For training, a CUDA
-capable GPU is *strongly* recommended. However, most CLI commands take a
-`--device` argument that can be either `cpu` or `cuda`. Thus, all operations can
-also be performed on the CPU.
-
-The system was developed and tested on Ubuntu 20.04 LTS. I have not tried it on
-Windows (i.e. WSL2) or MAC, but I can not think of an obvious reason why that
-should not work.
