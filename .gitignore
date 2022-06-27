@@ -7,3 +7,5 @@ wandb/
 viking-logs/
 .ipynb_checkpoints/
 .requirements.freeze.txt
+media*
+gen.py
