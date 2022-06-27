@@ -4,6 +4,7 @@ diffusion:
   beta_stop: 0.01
 
 arch:
+  model: Lara
   width_mult: 64
   timestep_channels: 16
 

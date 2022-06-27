@@ -20,7 +20,7 @@ class Alia(Model):
         gain = 1.
         tsc = self.cfg.arch.timestep_channels
         self.main = nn.Sequential(
-            # 16
+            # Resolution factor: 16
             self.block(self.cfg.img.channels + tsc, c(1), gain=gain),
             self.block(c(), c(), gain=gain),
             self.block(c(), c(), gain=gain),

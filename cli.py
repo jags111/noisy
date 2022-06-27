@@ -4,7 +4,7 @@ and finally sample from it, run the following commands:
 
     ./cli.py init  # Creates a new model
     ./cli.py train  # Logs to wandb.ai, interrupt with Ctrl+c
-    ./cli.py syn  # Samples from the model
+    ./cli.py sample  # Samples from the model
 
 Each command will print relevant information to stdout. For more options, add
 the --help flag to any command.
