@@ -1,5 +1,7 @@
 # Noisy
 
+![Sample images of birds](./Grid.png)
+
 A diffusion model for image generation with an emphasis on clean and readable
 code, an easy to use CLI as well as easy monitoring during training using
 [Weights And Biases](https://wandb.ai).
@@ -85,18 +87,18 @@ The source tree is structured as follows.
 
 ```
 noisy/
-├── dataset.py      # The dataset and preprocessing pipeline
-├── diffusion.py    # Functions specific to the diffusion process
-├── __init__.py
-├── models          # Collection of model architectures
-│   ├── alia.py     # The "Alia" model (147M parameters)
-│   ├── base.py     # The abstract base class for the models
-│   ├── common.py   # Common building blocks for the models
-│   ├── __init__.py
-│   ├── lara.py     # The "Lara" model (64M parameters)
-│   └── maria.py    # The "Maria" model (123M parameters)
-├── perf.py         # Minimal performance measurement tooling
-├── training.py     # The training loop and associated functions
-├── utils.py        # Utility functions and the `AttrDict`
-└── workdir.py      # Functions for dealing with workdirs and checkpoints
+    dataset.py      # The dataset and preprocessing pipeline
+    diffusion.py    # Functions specific to the diffusion process
+    __init__.py
+    models          # Collection of model architectures
+        alia.py     # The "Alia" model (147M parameters)
+        base.py     # The abstract base class for the models
+        common.py   # Common building blocks for the models
+        __init__.py
+        lara.py     # The "Lara" model (64M parameters)
+        maria.py    # The "Maria" model (123M parameters)
+    perf.py         # Minimal performance measurement tooling
+    training.py     # The training loop and associated functions
+    utils.py        # Utility functions and the `AttrDict`
+    workdir.py      # Functions for dealing with workdirs and checkpoints
 ```
